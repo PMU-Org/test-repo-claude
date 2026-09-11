@@ -1,0 +1,1425 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebM → HTML5 Banner Converter</title>
+<meta name="description" content="Клієнтський конвертер WebM (VP8/VP9, з альфа-каналом) у самодостатній HTML5-баннер зі спрайт-аркушем, clickTag і ZIP-пакетом для Google Ads / DV360.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e4322b'/%3E%3Cpath d='M8 11h4l2 7 2-7h4l2 7 2-7h0' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0e1014;
+  --panel: #16191f;
+  --panel-2: #1d2128;
+  --line: #2a2f38;
+  --ink: #e8eaed;
+  --ink-dim: #9aa2ad;
+  --ink-faint: #6b7280;
+  --accent: #e4322b;
+  --accent-ink: #fff;
+  --ok: #35c46a;
+  --warn: #e8b23a;
+  --bad: #ef4444;
+  --radius: 10px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── topbar ─────────────────────────────────────────── */
+.topbar {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+  padding: 28px 24px 20px;
+  max-width: 1180px; margin: 0 auto;
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; gap: 14px; align-items: flex-start; }
+.logo {
+  flex: none; width: 38px; height: 38px; border-radius: 9px;
+  background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; font-size: 15px; margin-top: 2px;
+}
+.topbar h1 { margin: 0; font-size: 21px; letter-spacing: -.01em; }
+.tagline { margin: 5px 0 0; color: var(--ink-dim); font-size: 13.5px; max-width: 62ch; }
+.ghlink {
+  flex: none; color: var(--ink-dim); text-decoration: none; font-size: 13px;
+  border: 1px solid var(--line); padding: 6px 12px; border-radius: 7px;
+}
+.ghlink:hover { color: var(--ink); border-color: var(--ink-faint); }
+.links { display: flex; gap: 8px; flex: none; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 24px 24px 8px; display: grid; gap: 20px; }
+
+/* ── cards ──────────────────────────────────────────── */
+.card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 20px 22px 22px;
+}
+.card > h2 {
+  margin: 0 0 16px; font-size: 15px; font-weight: 600; letter-spacing: .01em;
+  display: flex; align-items: center; gap: 10px;
+}
+.num {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  background: var(--panel-2); border: 1px solid var(--line);
+  display: grid; place-items: center; font-size: 12px; color: var(--ink-dim);
+}
+.card[aria-disabled="true"] { opacity: .45; pointer-events: none; }
+.hidden { display: none !important; }
+
+/* ── dropzone ───────────────────────────────────────── */
+.dropzone {
+  border: 1.5px dashed var(--line); border-radius: var(--radius);
+  padding: 34px 20px; text-align: center; cursor: pointer;
+  background: #13161b; transition: border-color .15s, background .15s;
+}
+.dropzone:hover, .dropzone:focus-visible { border-color: var(--accent); background: #171a20; outline: none; }
+.dropzone.over { border-color: var(--accent); background: #1b1618; }
+.dz-icon { width: 30px; height: 30px; stroke: var(--ink-faint); fill: none; stroke-width: 1.7; stroke-linecap: round; }
+.dz-main { margin: 10px 0 4px; font-size: 14.5px; }
+.dz-sub { margin: 0 0 14px; color: var(--ink-faint); font-size: 12.5px; }
+
+/* ── meta lists ─────────────────────────────────────── */
+.meta {
+  margin: 18px 0 0; display: grid; gap: 1px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+}
+.meta > div { background: var(--panel-2); padding: 10px 12px; }
+.meta dt { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); }
+.meta dd { margin: 3px 0 0; font-family: var(--mono); font-size: 13px; }
+.meta dd.warn { color: var(--warn); }
+.meta dd.bad { color: var(--bad); }
+.meta dd.ok { color: var(--ok); }
+
+.hint { color: var(--ink-dim); font-size: 12.5px; margin: 12px 0 0; }
+.hint.warn { color: var(--warn); }
+.hint.bad { color: var(--bad); }
+.hint.ok { color: var(--ok); }
+.hint:empty { display: none; }
+
+/* ── forms ──────────────────────────────────────────── */
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); align-items: start; }
+fieldset {
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px 14px; margin: 0;
+  background: var(--panel-2); display: grid; gap: 10px; align-content: start;
+}
+legend { padding: 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); }
+label { display: grid; gap: 5px; font-size: 12.5px; color: var(--ink-dim); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+label.check { display: flex; align-items: center; gap: 8px; color: var(--ink-dim); }
+label.check.tiny { font-size: 12px; }
+input[type="number"], input[type="url"], input[type="text"], select {
+  background: #101318; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 13px; width: 100%;
+}
+input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -1px; }
+input[type="color"] { padding: 2px; height: 32px; width: 52px; background: #101318; border: 1px solid var(--line); border-radius: 6px; }
+input[type="range"] { accent-color: var(--accent); width: 100%; }
+input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+output { font-family: var(--mono); color: var(--ink); font-size: 12px; }
+
+.budget {
+  margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line);
+  display: flex; align-items: end; gap: 12px; flex-wrap: wrap;
+}
+.budget label { min-width: 230px; }
+
+/* ── buttons ────────────────────────────────────────── */
+.btn {
+  font: inherit; font-size: 13px; padding: 8px 15px; border-radius: 7px; cursor: pointer;
+  background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+  transition: border-color .15s, background .15s;
+}
+.btn:hover:not(:disabled) { border-color: var(--ink-faint); background: #23272f; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
+.btn.primary:hover:not(:disabled) { background: #f04039; border-color: #f04039; }
+.btn.ghost { background: transparent; }
+.btn.tiny { padding: 4px 9px; font-size: 12px; }
+
+.actions { margin-top: 18px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+
+.progress { flex: 1 1 240px; min-width: 200px; display: flex; align-items: center; gap: 10px; }
+.progress .bar { flex: 1; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; position: relative; }
+.progress .bar::after {
+  content: ""; position: absolute; inset: 0 auto 0 0; width: var(--p, 0%);
+  background: var(--accent); transition: width .12s linear;
+}
+#progress-label { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+
+/* ── result ─────────────────────────────────────────── */
+.result-grid { display: grid; gap: 20px; grid-template-columns: minmax(0, auto) minmax(300px, 1fr); align-items: start; }
+@media (max-width: 860px) { .result-grid { grid-template-columns: 1fr; } }
+
+.preview-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  font-size: 12px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .06em;
+  margin-bottom: 8px;
+}
+.preview-tools { display: flex; align-items: center; gap: 10px; text-transform: none; letter-spacing: 0; }
+.stage {
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+  background: #0b0d10; display: grid; place-items: center; min-height: 120px;
+}
+.stage.checker {
+  background-color: #8d8d8d;
+  background-image:
+    linear-gradient(45deg, #6f6f6f 25%, transparent 25%, transparent 75%, #6f6f6f 75%),
+    linear-gradient(45deg, #6f6f6f 25%, transparent 25%, transparent 75%, #6f6f6f 75%);
+  background-size: 18px 18px; background-position: 0 0, 9px 9px;
+}
+#preview { border: 0; display: block; background: transparent; max-width: 100%; }
+
+.stats { margin-top: 0; }
+.downloads { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 9px; }
+
+.code { margin-top: 16px; }
+.code summary { cursor: pointer; font-size: 12.5px; color: var(--ink-dim); }
+.code pre {
+  margin: 10px 0 0; background: #0b0d10; border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; overflow: auto; max-height: 320px;
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.5; color: #c6ccd4;
+}
+
+/* ── notes ──────────────────────────────────────────── */
+.notes ol { margin: 0; padding-left: 20px; color: var(--ink-dim); font-size: 13px; }
+.notes li { margin-bottom: 7px; }
+.notes code, .tagline code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; color: var(--ink); }
+
+footer {
+  max-width: 1180px; margin: 0 auto; padding: 20px 24px 40px;
+  color: var(--ink-faint); font-size: 12px;
+}
+footer p { margin: 0; }
+
+@media (max-width: 620px) {
+  .topbar { flex-direction: column; gap: 14px; padding: 20px 16px 16px; }
+  main { padding: 16px; }
+  .card { padding: 16px; }
+  .row { grid-template-columns: 1fr; }
+}
+
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">▶</span>
+    <div>
+      <h1>WebM&nbsp;→&nbsp;HTML5 Banner</h1>
+      <p class="tagline">Конвертер відео-креативів у спрайтовий HTML5-баннер. Усе працює локально в браузері — файли нікуди не завантажуються.</p>
+    </div>
+  </div>
+  <nav class="links">
+    <a class="ghlink" href="dist/converter-standalone.html" download>Один файл</a>
+    <a class="ghlink" href="https://github.com/PMU-Org/test-repo-claude" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <!-- ───────────── 1. Джерело ───────────── -->
+  <section class="card" id="step-source">
+    <h2><span class="num">1</span> Джерело</h2>
+
+    <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Обрати WebM-файл">
+      <svg viewBox="0 0 24 24" class="dz-icon" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      <p class="dz-main">Перетягніть <b>.webm</b> сюди або натисніть, щоб обрати</p>
+      <p class="dz-sub" data-note="standalone">Підтримується VP8/VP9, у т.ч. з альфа-каналом. Також читає .mp4/.mov, якщо браузер їх декодує.</p>
+      <input type="file" id="file-input" accept="video/webm,video/mp4,video/quicktime,video/*" hidden>
+    </div>
+
+    <div id="source-info" class="hidden">
+      <dl class="meta">
+        <div><dt>Файл</dt><dd id="m-name">—</dd></div>
+        <div><dt>Розмір</dt><dd id="m-size">—</dd></div>
+        <div><dt>Роздільність</dt><dd id="m-dim">—</dd></div>
+        <div><dt>Тривалість</dt><dd id="m-dur">—</dd></div>
+        <div><dt>Частота кадрів</dt><dd id="m-fps">—</dd></div>
+        <div><dt>Альфа-канал</dt><dd id="m-alpha">—</dd></div>
+      </dl>
+      <p class="hint" id="source-warn"></p>
+    </div>
+  </section>
+
+  <!-- ───────────── 2. Налаштування ───────────── -->
+  <section class="card" id="step-settings" aria-disabled="true">
+    <h2><span class="num">2</span> Налаштування баннера</h2>
+
+    <div class="grid">
+      <fieldset>
+        <legend>Геометрія</legend>
+        <label>Розмір баннера
+          <select id="opt-preset"></select>
+        </label>
+        <div class="row">
+          <label>Ширина <input type="number" id="opt-w" min="16" max="4096" step="1"></label>
+          <label>Висота <input type="number" id="opt-h" min="16" max="4096" step="1"></label>
+        </div>
+        <label class="check"><input type="checkbox" id="opt-ratio" checked> Зберігати пропорції джерела</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Анімація</legend>
+        <label>Частота кадрів (fps)
+          <select id="opt-fps">
+            <option value="0">Як у джерелі</option>
+            <option value="25">25</option>
+            <option value="24">24</option>
+            <option value="20">20</option>
+            <option value="15" selected>15 — рекомендовано</option>
+            <option value="12">12</option>
+            <option value="10">10</option>
+            <option value="8">8</option>
+          </select>
+        </label>
+        <div class="row">
+          <label>Обрізка, від (с) <input type="number" id="opt-start" min="0" step="0.01" value="0"></label>
+          <label>до (с) <input type="number" id="opt-end" min="0" step="0.01"></label>
+        </div>
+        <label>Повтори
+          <select id="opt-loops">
+            <option value="1">1 раз</option>
+            <option value="2">2 рази</option>
+            <option value="3" selected>3 рази (ліміт IAB/GDN)</option>
+            <option value="0">Безкінечно</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Спрайт</legend>
+        <label>Формат
+          <select id="opt-format">
+            <option value="image/webp" selected>WebP — найменший, з альфою</option>
+            <option value="image/png">PNG — lossless, з альфою</option>
+            <option value="image/jpeg">JPEG — без альфи</option>
+          </select>
+        </label>
+        <label>Якість <output id="q-out">80</output>
+          <input type="range" id="opt-quality" min="20" max="100" step="1" value="80">
+        </label>
+        <label>Роздільність спрайта
+          <select id="opt-scale">
+            <option value="1" selected>100% — 1:1, найрізкіше</option>
+            <option value="0.85">85%</option>
+            <option value="0.75">75%</option>
+            <option value="0.6">60%</option>
+            <option value="0.5">50% — найлегше</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="opt-transparent" checked> Прозорий фон</label>
+        <label id="wrap-bg" class="hidden">Колір фону <input type="color" id="opt-bg" value="#ffffff"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Рекламна обгортка</legend>
+        <label>clickTag / цільовий URL
+          <input type="url" id="opt-click" placeholder="https://example.com/landing" value="https://example.com/">
+        </label>
+        <label class="check"><input type="checkbox" id="opt-border" checked> Рамка 1&nbsp;px</label>
+        <label id="wrap-border">Колір рамки <input type="color" id="opt-border-color" value="#d9d9d9"></label>
+        <label>Кадр для backup-зображення <output id="bk-out">1</output>
+          <input type="range" id="opt-backup" min="1" max="1" step="1" value="1">
+        </label>
+      </fieldset>
+    </div>
+
+    <div class="budget">
+      <label>Бюджет розміру
+        <select id="opt-budget">
+          <option value="150">150 КБ — Google Ads / IAB</option>
+          <option value="200">200 КБ</option>
+          <option value="500" selected>500 КБ</option>
+          <option value="0">Без обмежень</option>
+        </select>
+      </label>
+      <label>Чим жертвувати першим
+        <select id="opt-priority">
+          <option value="sharpness" selected>Тримати різкість — ріжемо fps</option>
+          <option value="smoothness">Тримати плавність — ріжемо роздільність</option>
+          <option value="balanced">Баланс</option>
+        </select>
+      </label>
+      <button type="button" class="btn" id="btn-autofit" title="Підбирає роздільність, fps і якість, щоб вкластися в бюджет">Підібрати під бюджет</button>
+    </div>
+    <p class="hint">Дрібний текст — юридичні дисклеймери, легальні позначки — «розсипається» вже на 75% роздільності. Якщо він є в кадрі, тримайте різкість.</p>
+
+    <div class="actions">
+      <button type="button" class="btn primary" id="btn-convert" disabled>Конвертувати</button>
+      <div class="progress hidden" id="progress"><div class="bar" id="progress-bar"></div><span id="progress-label"></span></div>
+    </div>
+  </section>
+
+  <!-- ───────────── 3. Результат ───────────── -->
+  <section class="card hidden" id="step-result">
+    <h2><span class="num">3</span> Результат</h2>
+
+    <div class="result-grid">
+      <div class="preview-col">
+        <div class="preview-head">
+          <span>Перегляд</span>
+          <div class="preview-tools">
+            <button type="button" class="btn tiny" id="btn-replay">↻ Повторити</button>
+            <label class="check tiny"><input type="checkbox" id="opt-checker" checked> Шахівниця</label>
+          </div>
+        </div>
+        <div class="stage" id="stage"><iframe id="preview" title="Перегляд баннера" sandbox="allow-scripts"></iframe></div>
+      </div>
+
+      <div class="export-col">
+        <dl class="meta stats">
+          <div><dt>Кадрів</dt><dd id="r-frames">—</dd></div>
+          <div><dt>Спрайт</dt><dd id="r-sheet">—</dd></div>
+          <div><dt>Спрайт, вага</dt><dd id="r-sprite">—</dd></div>
+          <div><dt>Один HTML</dt><dd id="r-html">—</dd></div>
+          <div><dt>ZIP-пакет</dt><dd id="r-zip">—</dd></div>
+          <div><dt>Пам'ять на декод</dt><dd id="r-mem">—</dd></div>
+        </dl>
+        <p class="hint" id="r-verdict"></p>
+
+        <div class="downloads">
+          <button type="button" class="btn primary" id="dl-zip">⤓ ZIP для Google&nbsp;Ads</button>
+          <button type="button" class="btn" id="dl-html">⤓ Один файл index.html</button>
+          <button type="button" class="btn" id="dl-sprite">⤓ Спрайт</button>
+          <button type="button" class="btn" id="dl-backup">⤓ Backup .png</button>
+        </div>
+
+        <details class="code">
+          <summary>Код баннера</summary>
+          <pre><code id="code-out"></code></pre>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="card notes">
+    <h2>Як це працює</h2>
+    <ol>
+      <li>Кадри знімаються з відео покадровим seek у <code>&lt;canvas&gt;</code> — без перекодування на сервері, альфа-канал VP9 зберігається.</li>
+      <li>Кадри пакуються в один спрайт-аркуш (сітка, близька до квадрата, до 16&nbsp;383&nbsp;px по стороні).</li>
+      <li>Баннер анімує <code>background-position</code> через <code>requestAnimationFrame</code> з накопиченням часу — без дрейфу fps, з паузою на невидимій вкладці та зупинкою на останньому кадрі.</li>
+      <li>У пакет додаються <code>&lt;meta name="ad.size"&gt;</code>, глобальний <code>clickTag</code> і backup-зображення — формат, який приймають Google Ads, DV360 та Campaign Manager.</li>
+    </ol>
+    <p class="hint">Обмеження: спрайтовий підхід лінійно нарощує вагу з кількістю кадрів. Для кліпів довше ~5&nbsp;с знижуйте fps або ріжіть анімацію — інакше 150&nbsp;КБ не втримати.</p>
+  </section>
+</main>
+
+<footer>
+  <p>Усе обчислюється у вашому браузері. Потрібен Chrome&nbsp;94+, Edge, Firefox&nbsp;100+ або Safari&nbsp;16.4+.</p>
+</footer>
+
+<script>
+/* ── extract.js ────────────────────────────── */
+/**
+ * Frame extraction from a video file, entirely client-side.
+ *
+ * Two strategies are used for two different jobs:
+ *  - frame rate probing plays a short slice and measures the interval between
+ *    frames actually presented by the compositor (requestVideoFrameCallback);
+ *  - frame capture seeks to a deterministic timestamp per output frame and
+ *    draws into a canvas. Seeking is slower than playback capture but it never
+ *    drops or duplicates frames, which matters when a 2 s clip becomes a
+ *    fixed-length sprite sheet.
+ *
+ * The canvas keeps its alpha channel, so VP9 alpha (alpha_mode: 1) survives.
+ */
+function loadVideo(url) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = 'anonymous';
+    video.src = url;
+
+    const fail = () => reject(new Error('Браузер не зміг декодувати цей файл. Потрібен WebM (VP8/VP9) або інший підтримуваний кодек.'));
+    video.addEventListener('error', fail, { once: true });
+    video.addEventListener('loadeddata', () => {
+      if (!video.videoWidth || !video.videoHeight) return fail();
+      resolve(video);
+    }, { once: true });
+  });
+}
+
+/** Median interval between presented frames → source fps. Falls back to 30. */
+async function probeFrameRate(video, maxProbeSeconds = 2) {
+  if (typeof video.requestVideoFrameCallback !== 'function') return { fps: 30, exact: false };
+
+  const stamps = [];
+  const done = new Promise((resolve) => {
+    const onFrame = (_now, meta) => {
+      stamps.push(meta.mediaTime);
+      if (stamps.length >= 60 || meta.mediaTime > maxProbeSeconds) return resolve();
+      video.requestVideoFrameCallback(onFrame);
+    };
+    video.requestVideoFrameCallback(onFrame);
+    setTimeout(resolve, 3000);
+  });
+
+  try {
+    video.currentTime = 0;
+    await video.play();
+    await done;
+  } catch {
+    /* autoplay blocked — fall through to the default */
+  } finally {
+    video.pause();
+  }
+
+  const deltas = [];
+  for (let i = 1; i < stamps.length; i++) {
+    const d = stamps[i] - stamps[i - 1];
+    if (d > 0.001) deltas.push(d);
+  }
+  if (deltas.length < 3) return { fps: 30, exact: false };
+
+  deltas.sort((a, b) => a - b);
+  const median = deltas[deltas.length >> 1];
+  const raw = 1 / median;
+
+  // Snap to a standard rate when we are within 3% of one.
+  for (const std of [60, 50, 30, 29.97, 25, 24, 23.976, 20, 15, 12, 10]) {
+    if (Math.abs(raw - std) / std < 0.03) return { fps: std, exact: true };
+  }
+  return { fps: Math.round(raw * 100) / 100, exact: true };
+}
+
+function seek(video, time) {
+  return new Promise((resolve) => {
+    if (Math.abs(video.currentTime - time) < 1e-4 && video.readyState >= 2) return resolve();
+    video.addEventListener('seeked', () => resolve(), { once: true });
+    video.currentTime = time;
+  });
+}
+
+/**
+ * Capture `count` frames of size w×h, sampling the source at the midpoint of
+ * each output frame's interval — the midpoint avoids landing exactly on a
+ * frame boundary, where rounding decides which of two frames you get.
+ *
+ * @returns {Promise<{canvases: HTMLCanvasElement[], hasAlpha: boolean}>}
+ */
+async function captureFrames(video, opts, onProgress) {
+  const { start, end, fps, width, height, background } = opts;
+  const span = Math.max(end - start, 1 / fps);
+  const count = Math.max(1, Math.round(span * fps));
+  const step = span / count;
+
+  const canvases = [];
+  let hasAlpha = false;
+
+  for (let i = 0; i < count; i++) {
+    const t = Math.min(start + step * (i + 0.5), Math.max(end - 1e-3, start));
+    await seek(video, t);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { alpha: !background });
+    ctx.imageSmoothingQuality = 'high';
+
+    if (background) {
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, width, height);
+    } else {
+      ctx.clearRect(0, 0, width, height);
+    }
+    ctx.drawImage(video, 0, 0, width, height);
+
+    if (i === 0 && !background) hasAlpha = detectAlpha(ctx, width, height);
+    canvases.push(canvas);
+
+    if (onProgress) onProgress((i + 1) / count, i + 1, count);
+    if (i % 4 === 3) await new Promise((r) => setTimeout(r, 0)); // keep the UI responsive
+  }
+
+  return { canvases, hasAlpha, fps, count };
+}
+
+/** Sparse grid scan for any non-opaque pixel. */
+function detectAlpha(ctx, w, h) {
+  const steps = 12;
+  for (let y = 0; y < steps; y++) {
+    for (let x = 0; x < steps; x++) {
+      const px = Math.min(w - 1, Math.floor((x + 0.5) * w / steps));
+      const py = Math.min(h - 1, Math.floor((y + 0.5) * h / steps));
+      if (ctx.getImageData(px, py, 1, 1).data[3] < 250) return true;
+    }
+  }
+  return false;
+}
+
+
+/* ── sprite.js ────────────────────────────── */
+/**
+ * Sprite sheet packing and encoding.
+ *
+ * Frames go into a near-square grid: a single strip would blow past the
+ * 16 383 px WebP dimension limit after ~54 frames of a 300 px-wide creative,
+ * and a square sheet also decodes into less wasted memory.
+ */
+
+const MAX_DIM = 16383; // WebP hard limit; PNG/JPEG are looser but this is a safe common bound
+function planGrid(count, frameW, frameH) {
+  const maxCols = Math.max(1, Math.floor(MAX_DIM / frameW));
+  const maxRows = Math.max(1, Math.floor(MAX_DIM / frameH));
+
+  let cols = Math.max(1, Math.min(maxCols, Math.ceil(Math.sqrt((count * frameH) / frameW))));
+  let rows = Math.ceil(count / cols);
+
+  while (rows > maxRows && cols < maxCols) {
+    cols++;
+    rows = Math.ceil(count / cols);
+  }
+  if (rows > maxRows) {
+    throw new Error(`Занадто багато кадрів для одного спрайта (${count}). Зменште fps, розмір або обріжте анімацію.`);
+  }
+  return { cols, rows, sheetW: cols * frameW, sheetH: rows * frameH };
+}
+function packSheet(canvases, frameW, frameH, background) {
+  const { cols, rows, sheetW, sheetH } = planGrid(canvases.length, frameW, frameH);
+  const sheet = document.createElement('canvas');
+  sheet.width = sheetW;
+  sheet.height = sheetH;
+
+  const ctx = sheet.getContext('2d', { alpha: !background });
+  if (background) {
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, sheetW, sheetH);
+  }
+  canvases.forEach((c, i) => {
+    ctx.drawImage(c, (i % cols) * frameW, Math.floor(i / cols) * frameH);
+  });
+
+  return { canvas: sheet, cols, rows, sheetW, sheetH };
+}
+function encode(canvas, mime, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error(`Браузер не підтримує кодування ${mime}.`))),
+      mime,
+      mime === 'image/png' ? undefined : quality / 100
+    );
+  });
+}
+async function blobToDataURL(blob) {
+  const reader = new FileReader();
+  return new Promise((resolve, reject) => {
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+function extensionFor(mime) {
+  return { 'image/webp': 'webp', 'image/png': 'png', 'image/jpeg': 'jpg' }[mime] || 'bin';
+}
+
+
+/* ── zip.js ────────────────────────────── */
+/**
+ * Minimal ZIP writer, store-only (no DEFLATE).
+ *
+ * Everything we pack is already compressed (WebP/PNG/JPEG) except a few KB of
+ * HTML, so deflating would save almost nothing and would mean pulling in a
+ * compression library. Store-only keeps the tool dependency-free, and ad
+ * platforms unpack it the same way.
+ */
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function dosDateTime(date) {
+  const time = ((date.getHours() & 0x1f) << 11) | ((date.getMinutes() & 0x3f) << 5) | ((date.getSeconds() / 2) & 0x1f);
+  const day = (((date.getFullYear() - 1980) & 0x7f) << 9) | (((date.getMonth() + 1) & 0x0f) << 5) | (date.getDate() & 0x1f);
+  return { time, day };
+}
+
+/**
+ * @param {Array<{name: string, data: Uint8Array}>} entries
+ * @returns {Blob} application/zip
+ */
+function createZip(entries) {
+  const encoder = new TextEncoder();
+  const { time, day } = dosDateTime(new Date());
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = encoder.encode(entry.name);
+    const data = entry.data;
+    const crc = crc32(data);
+
+    const local = new Uint8Array(30 + name.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true); // local file header signature
+    lv.setUint16(4, 20, true);         // version needed
+    lv.setUint16(6, 0x0800, true);     // UTF-8 filename flag
+    lv.setUint16(8, 0, true);          // method: store
+    lv.setUint16(10, time, true);
+    lv.setUint16(12, day, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, data.length, true);
+    lv.setUint32(22, data.length, true);
+    lv.setUint16(26, name.length, true);
+    local.set(name, 30);
+
+    const central = new Uint8Array(46 + name.length);
+    const cv = new DataView(central.buffer);
+    cv.setUint32(0, 0x02014b50, true); // central directory header signature
+    cv.setUint16(4, 20, true);         // version made by
+    cv.setUint16(6, 20, true);         // version needed
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, time, true);
+    cv.setUint16(14, day, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, data.length, true);
+    cv.setUint32(24, data.length, true);
+    cv.setUint16(28, name.length, true);
+    cv.setUint32(42, offset, true);    // relative offset of local header
+    central.set(name, 46);
+
+    locals.push(local, data);
+    centrals.push(central);
+    offset += local.length + data.length;
+  }
+
+  const centralSize = centrals.reduce((sum, c) => sum + c.length, 0);
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);   // end of central directory
+  ev.setUint16(8, entries.length, true);
+  ev.setUint16(10, entries.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, offset, true);
+
+  return new Blob([...locals, ...centrals, end], { type: 'application/zip' });
+}
+async function blobBytes(blob) {
+  return new Uint8Array(await blob.arrayBuffer());
+}
+function textBytes(text) {
+  return new TextEncoder().encode(text);
+}
+
+
+/* ── banner.js ────────────────────────────── */
+/**
+ * Generates the banner package: an HTML document that animates the sprite
+ * sheet, plus the metadata ad platforms look for (ad.size meta tag, a global
+ * clickTag, a backup image).
+ *
+ * The player advances on requestAnimationFrame with an accumulator instead of
+ * setInterval, so playback keeps the requested fps without drifting, and it
+ * parks on the last frame once the loop budget is spent — the behaviour
+ * Google Ads and IAB expect from display creatives.
+ */
+
+const PLAYER = `(function () {
+  var FRAMES = %FRAMES%, COLS = %COLS%, FW = %FW%, FH = %FH%, FPS = %FPS%, LOOPS = %LOOPS%;
+  var el = document.getElementById('frame'), ad = document.getElementById('ad');
+  var idx = 0, loops = 0, acc = 0, prev = 0, raf = 0, step = 1000 / FPS;
+
+  function show(i) {
+    el.style.backgroundPosition = -(i %% COLS) * FW + 'px ' + -Math.floor(i / COLS) * FH + 'px';
+  }
+
+  function tick(now) {
+    if (!prev) prev = now;
+    acc += now - prev;
+    prev = now;
+    if (acc > step * 5) acc = step; // a backgrounded tab must not fast-forward
+    while (acc >= step) {
+      acc -= step;
+      if (idx + 1 >= FRAMES) {
+        loops++;
+        if (LOOPS && loops >= LOOPS) { show(FRAMES - 1); raf = 0; return; }
+        idx = 0;
+      } else {
+        idx++;
+      }
+    }
+    show(idx);
+    raf = requestAnimationFrame(tick);
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; prev = 0; }
+    else if (!raf && !(LOOPS && loops >= LOOPS)) { raf = requestAnimationFrame(tick); }
+  });
+
+  show(0);
+  if (FRAMES > 1) raf = requestAnimationFrame(tick);
+
+  if (ad) {
+    ad.href = window.clickTag || '#';
+    ad.addEventListener('click', function (e) {
+      e.preventDefault();
+      window.open(window.clickTag, '_blank');
+    });
+  }
+})();`;
+
+function escapeAttr(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escapeJsString(value) {
+  return JSON.stringify(String(value));
+}
+
+/**
+ * @param {object} cfg
+ * @param {string} cfg.spriteUrl  sprite.webp or a data: URL for single-file output
+ * @returns {string} the banner document
+ */
+function buildBannerHtml(cfg) {
+  const {
+    name, width, height, frames, cols, fps, loops,
+    spriteUrl, clickUrl, border, borderColor, background,
+  } = cfg;
+
+  // The sheet may be encoded below 1:1 to save bytes, so background-size is
+  // expressed in CSS pixels — one cell always covers exactly one banner.
+  const rows = Math.ceil(frames / cols);
+  const bgW = cols * width;
+  const bgH = rows * height;
+
+  const player = PLAYER
+    .replace(/%%/g, '%')
+    .replace('%FRAMES%', frames)
+    .replace('%COLS%', cols)
+    .replace('%FW%', width)
+    .replace('%FH%', height)
+    .replace('%FPS%', fps)
+    .replace('%LOOPS%', loops);
+
+  const adRules = [
+    'display:block',
+    'position:relative',
+    `width:${width}px`,
+    `height:${height}px`,
+    'overflow:hidden',
+    'text-decoration:none',
+    'box-sizing:border-box',
+    'cursor:pointer',
+    background ? `background:${background}` : 'background:transparent',
+    border ? `border:1px solid ${borderColor}` : 'border:0',
+  ].join(';');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ad.size" content="width=${width},height=${height}">
+<title>${escapeAttr(name)} — ${width}x${height}</title>
+<style>
+html, body { margin: 0; padding: 0; background: transparent; }
+#ad { ${adRules}; }
+#frame {
+  position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px;
+  background-image: url(${spriteUrl});
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: ${bgW}px ${bgH}px;
+}
+</style>
+</head>
+<body>
+<a id="ad" href="${escapeAttr(clickUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttr(name)}"><div id="frame"></div></a>
+<script>
+var clickTag = ${escapeJsString(clickUrl)};
+${player}
+<\/script>
+</body>
+</html>
+`;
+}
+
+/** README shipped inside the ZIP so whoever uploads the creative knows what it is. */
+function buildManifest(cfg) {
+  const seconds = (cfg.frames / cfg.fps).toFixed(2);
+  return `${cfg.name} — HTML5 banner ${cfg.width}x${cfg.height}
+${'='.repeat(48)}
+
+Source            ${cfg.sourceName}
+Frames            ${cfg.frames} (${cfg.cols} cols x ${Math.ceil(cfg.frames / cfg.cols)} rows)
+Frame rate        ${cfg.fps} fps
+Animation length  ${seconds} s x ${cfg.loops === 0 ? 'infinite' : cfg.loops} loop(s)
+Sprite sheet      ${cfg.spriteFile} — ${cfg.sheetW}x${cfg.sheetH} px (${Math.round(cfg.scale * 100)}% of display size)
+Backup image      ${cfg.backupFile}
+Click-through     ${cfg.clickUrl}
+
+Files
+  index.html      the creative; entry point for the ad server
+  ${cfg.spriteFile.padEnd(15)} sprite sheet with every frame
+  ${cfg.backupFile.padEnd(15)} static backup image (single frame)
+
+Notes
+  - index.html declares <meta name="ad.size"> and a global clickTag variable,
+    so Google Ads, Display & Video 360 and Campaign Manager pick up both the
+    dimensions and the exit URL automatically.
+  - The animation stops on its last frame after the loop budget is spent and
+    pauses while the tab is hidden.
+  - Keep index.html and the sprite in the same folder; upload the ZIP as-is.
+
+Generated with WebM -> HTML5 Banner Converter.
+`;
+}
+
+
+/* ── app.js ────────────────────────────── */
+const PRESETS = [
+  ['source', 'Як у джерелі', 0, 0],
+  ['300x250', '300×250 — Medium Rectangle', 300, 250],
+  ['300x600', '300×600 — Half Page', 300, 600],
+  ['336x280', '336×280 — Large Rectangle', 336, 280],
+  ['728x90', '728×90 — Leaderboard', 728, 90],
+  ['970x250', '970×250 — Billboard', 970, 250],
+  ['970x90', '970×90 — Large Leaderboard', 970, 90],
+  ['320x50', '320×50 — Mobile Banner', 320, 50],
+  ['320x100', '320×100 — Large Mobile Banner', 320, 100],
+  ['160x600', '160×600 — Wide Skyscraper', 160, 600],
+  ['120x600', '120×600 — Skyscraper', 120, 600],
+  ['250x250', '250×250 — Square', 250, 250],
+  ['468x60', '468×60 — Banner', 468, 60],
+  ['1080x1080', '1080×1080 — Social square', 1080, 1080],
+  ['custom', 'Свій розмір', -1, -1],
+];
+
+const $ = (id) => document.getElementById(id);
+const el = {
+  dropzone: $('dropzone'), fileInput: $('file-input'), sample: $('btn-sample'),
+  sourceInfo: $('source-info'), sourceWarn: $('source-warn'),
+  settings: $('step-settings'), result: $('step-result'),
+  preset: $('opt-preset'), w: $('opt-w'), h: $('opt-h'), ratio: $('opt-ratio'),
+  fps: $('opt-fps'), start: $('opt-start'), end: $('opt-end'), loops: $('opt-loops'),
+  format: $('opt-format'), quality: $('opt-quality'), qOut: $('q-out'), scale: $('opt-scale'),
+  transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
+  click: $('opt-click'), border: $('opt-border'), borderColor: $('opt-border-color'),
+  backup: $('opt-backup'), bkOut: $('bk-out'),
+  budget: $('opt-budget'), priority: $('opt-priority'), autofit: $('btn-autofit'), convert: $('btn-convert'),
+  progress: $('progress'), bar: $('progress-bar'), label: $('progress-label'),
+  stage: $('stage'), preview: $('preview'), replay: $('btn-replay'), checker: $('opt-checker'),
+  codeOut: $('code-out'), verdict: $('r-verdict'),
+};
+
+const state = { file: null, url: null, video: null, meta: null, result: null, busy: false };
+
+/* ── helpers ──────────────────────────────────────────────────────── */
+
+const kb = (bytes) => `${(bytes / 1024).toFixed(1)} КБ`;
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+function setProgress(fraction, text) {
+  el.progress.classList.toggle('hidden', fraction === null);
+  if (fraction === null) return;
+  el.bar.style.setProperty('--p', `${Math.round(fraction * 100)}%`);
+  el.label.textContent = text || '';
+}
+
+function download(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+function slug(name) {
+  return (name.replace(/\.[^.]+$/, '') || 'banner')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'banner';
+}
+
+/** `video.duration` is Infinity for some streamed WebM files until you seek past the end. */
+async function resolveDuration(video) {
+  if (Number.isFinite(video.duration) && video.duration > 0) return video.duration;
+  return new Promise((resolve) => {
+    const onSeek = () => {
+      video.removeEventListener('timeupdate', onSeek);
+      video.currentTime = 0;
+      resolve(Number.isFinite(video.duration) ? video.duration : 0);
+    };
+    video.addEventListener('timeupdate', onSeek);
+    video.currentTime = 1e7;
+  });
+}
+
+/* ── source loading ───────────────────────────────────────────────── */
+
+async function useFile(file) {
+  if (state.busy) return;
+  state.busy = true;
+  el.convert.disabled = true;
+  setProgress(0.1, 'Читаю файл…');
+
+  try {
+    if (state.url) URL.revokeObjectURL(state.url);
+    state.file = file;
+    state.url = URL.createObjectURL(file);
+    state.video = await loadVideo(state.url);
+
+    const duration = await resolveDuration(state.video);
+    setProgress(0.5, 'Визначаю частоту кадрів…');
+    const { fps, exact } = await probeFrameRate(state.video);
+    setProgress(0.8, 'Перевіряю альфа-канал…');
+    const hasAlpha = await sniffAlpha(state.video, duration);
+
+    state.meta = {
+      width: state.video.videoWidth, height: state.video.videoHeight,
+      duration, fps, fpsExact: exact, hasAlpha,
+    };
+    applyMeta();
+    el.convert.disabled = false;
+    el.settings.removeAttribute('aria-disabled');
+    el.sourceInfo.classList.remove('hidden');
+  } catch (error) {
+    el.sourceWarn.textContent = error.message;
+    el.sourceWarn.className = 'hint bad';
+    el.sourceInfo.classList.remove('hidden');
+  } finally {
+    state.busy = false;
+    setProgress(null);
+  }
+}
+
+async function sniffAlpha(video, duration) {
+  const { hasAlpha } = await captureFrames(video, {
+    start: Math.max(0, duration * 0.5), end: Math.max(0.04, duration * 0.5 + 0.04),
+    fps: 25, width: video.videoWidth, height: video.videoHeight, background: null,
+  });
+  return hasAlpha;
+}
+
+function applyMeta() {
+  const m = state.meta;
+  $('m-name').textContent = state.file.name;
+  $('m-size').textContent = kb(state.file.size);
+  $('m-dim').textContent = `${m.width}×${m.height}`;
+  $('m-dur').textContent = `${m.duration.toFixed(2)} с`;
+  $('m-fps').textContent = m.fpsExact ? `${m.fps}` : `${m.fps} (оцінка)`;
+  const alphaCell = $('m-alpha');
+  alphaCell.textContent = m.hasAlpha ? 'є — прозорість збережено' : 'немає';
+  alphaCell.className = m.hasAlpha ? 'ok' : '';
+
+  el.w.value = m.width;
+  el.h.value = m.height;
+  el.end.value = m.duration.toFixed(2);
+  el.end.max = m.duration.toFixed(2);
+  el.start.max = m.duration.toFixed(2);
+  el.transparent.checked = m.hasAlpha;
+  syncTransparency();
+
+  const exactPreset = PRESETS.find(([, , w, h]) => w === m.width && h === m.height);
+  el.preset.value = exactPreset ? exactPreset[0] : 'source';
+
+  const notes = [];
+  if (m.duration > 6) notes.push(`Кліп ${m.duration.toFixed(1)} с — спрайт буде важким. Знижуйте fps або обріжте до 5 с.`);
+  if (!m.fpsExact) notes.push('Частоту кадрів визначено приблизно — перевірте, чи анімація не пливе.');
+  if (m.hasAlpha) notes.push('Виявлено альфа-канал: обирайте WebP або PNG, щоб не втратити прозорість.');
+  el.sourceWarn.textContent = notes.join(' ');
+  el.sourceWarn.className = notes.length ? 'hint warn' : 'hint';
+
+  estimate();
+}
+
+/* ── settings plumbing ────────────────────────────────────────────── */
+
+function syncTransparency() {
+  const transparent = el.transparent.checked;
+  el.wrapBg.classList.toggle('hidden', transparent);
+  if (el.format.value === 'image/jpeg' && transparent) {
+    el.transparent.checked = false;
+    el.wrapBg.classList.remove('hidden');
+  }
+}
+
+function currentOptions() {
+  const m = state.meta;
+  const fpsChoice = Number(el.fps.value);
+  const fps = fpsChoice || m.fps;
+  const start = clamp(Number(el.start.value) || 0, 0, m.duration);
+  const end = clamp(Number(el.end.value) || m.duration, start + 1 / fps, m.duration);
+  const transparent = el.transparent.checked && el.format.value !== 'image/jpeg';
+
+  return {
+    width: clamp(Math.round(Number(el.w.value) || m.width), 16, 4096),
+    height: clamp(Math.round(Number(el.h.value) || m.height), 16, 4096),
+    fps, start, end,
+    loops: Number(el.loops.value),
+    mime: el.format.value,
+    quality: Number(el.quality.value),
+    scale: Number(el.scale.value) || 1,
+    background: transparent ? null : el.bg.value,
+    clickUrl: el.click.value.trim() || 'https://example.com/',
+    border: el.border.checked,
+    borderColor: el.borderColor.value,
+    budget: Number(el.budget.value),
+  };
+}
+
+/** Frame count and sheet geometry, shown before anything is encoded. */
+function estimate() {
+  if (!state.meta) return;
+  const o = currentOptions();
+  const count = Math.max(1, Math.round((o.end - o.start) * o.fps));
+  el.backup.max = count;
+  el.backup.value = clamp(Number(el.backup.value) || 1, 1, count);
+  el.bkOut.textContent = el.backup.value;
+  try {
+    const grid = planGrid(count, Math.round(o.width * o.scale), Math.round(o.height * o.scale));
+    el.convert.textContent = `Конвертувати — ${count} кадрів, спрайт ${grid.sheetW}×${grid.sheetH}`;
+    el.convert.disabled = false;
+  } catch (error) {
+    el.convert.textContent = 'Конвертувати';
+    el.convert.disabled = true;
+    el.sourceWarn.textContent = error.message;
+    el.sourceWarn.className = 'hint bad';
+  }
+}
+
+/* ── conversion ───────────────────────────────────────────────────── */
+
+async function convert(options) {
+  const o = options || currentOptions();
+  const spriteW = Math.max(16, Math.round(o.width * o.scale));
+  const spriteH = Math.max(16, Math.round(o.height * o.scale));
+
+  const { canvases } = await captureFrames(state.video, { ...o, width: spriteW, height: spriteH }, (fraction, done, total) => {
+    setProgress(fraction * 0.7, `Кадр ${done}/${total}`);
+  });
+
+  setProgress(0.75, 'Пакую спрайт…');
+  const sheet = packSheet(canvases, spriteW, spriteH, o.background);
+
+  setProgress(0.85, 'Кодую зображення…');
+  const spriteBlob = await encode(sheet.canvas, o.mime, o.quality);
+  const backupIndex = clamp(Number(el.backup.value) - 1, 0, canvases.length - 1);
+  const backupBlob = await encode(canvases[backupIndex], o.background ? 'image/jpeg' : 'image/png', 92);
+
+  setProgress(0.95, 'Збираю пакет…');
+  const ext = extensionFor(o.mime);
+  const base = slug(state.file.name);
+  const spriteFile = `sprite.${ext}`;
+  const backupFile = `backup.${o.background ? 'jpg' : 'png'}`;
+
+  const shared = {
+    name: base, sourceName: state.file.name,
+    width: o.width, height: o.height,
+    frames: canvases.length, cols: sheet.cols, fps: o.fps, loops: o.loops,
+    sheetW: sheet.sheetW, sheetH: sheet.sheetH, scale: o.scale,
+    clickUrl: o.clickUrl, border: o.border, borderColor: o.borderColor, background: o.background,
+    spriteFile, backupFile,
+  };
+
+  const htmlExternal = buildBannerHtml({ ...shared, spriteUrl: spriteFile });
+  const spriteDataUrl = await blobToDataURL(spriteBlob);
+  const htmlInline = buildBannerHtml({ ...shared, spriteUrl: spriteDataUrl });
+
+  const zipBlob = createZip([
+    { name: 'index.html', data: textBytes(htmlExternal) },
+    { name: spriteFile, data: await blobBytes(spriteBlob) },
+    { name: 'README.txt', data: textBytes(buildManifest(shared)) },
+  ]);
+
+  setProgress(null);
+  return {
+    ...shared, options: o, spriteBlob, backupBlob, zipBlob,
+    htmlExternal, htmlInline, base,
+    sizes: {
+      sprite: spriteBlob.size,
+      html: new Blob([htmlInline]).size,
+      zip: zipBlob.size,
+      memory: sheet.sheetW * sheet.sheetH * 4,
+    },
+  };
+}
+
+function showResult(result) {
+  state.result = result;
+  el.result.classList.remove('hidden');
+
+  $('r-frames').textContent = `${result.frames} @ ${result.fps} fps (${(result.frames / result.fps).toFixed(2)} с)`;
+  $('r-sheet').textContent = `${result.sheetW}×${result.sheetH} · ${result.cols}×${Math.ceil(result.frames / result.cols)}`
+    + (result.scale === 1 ? '' : ` · ${Math.round(result.scale * 100)}%`);
+  $('r-sprite').textContent = kb(result.sizes.sprite);
+  $('r-html').textContent = kb(result.sizes.html);
+  $('r-zip').textContent = kb(result.sizes.zip);
+  $('r-mem').textContent = `${(result.sizes.memory / 1048576).toFixed(1)} МБ`;
+
+  const budget = result.options.budget;
+  const zipKb = result.sizes.zip / 1024;
+  const memoryHeavy = result.sizes.memory > 64 * 1048576;
+  const zipCell = $('r-zip');
+  zipCell.className = !budget ? '' : zipKb <= budget ? 'ok' : 'bad';
+  $('r-mem').className = memoryHeavy ? 'warn' : '';
+
+  const verdict = [];
+  if (budget && zipKb > budget) {
+    verdict.push(`ZIP ${zipKb.toFixed(0)} КБ перевищує бюджет ${budget} КБ — натисніть «Підібрати під бюджет».`);
+  } else if (budget) {
+    verdict.push(`ZIP вкладається в ${budget} КБ.`);
+  }
+  if (result.loops !== 0 && result.frames / result.fps * (result.loops || 1) > 30) {
+    verdict.push('Загальна тривалість анімації > 30 с — ліміт IAB.');
+  }
+  if (memoryHeavy) {
+    verdict.push('Спрайт займає багато пам’яті на декод; на слабких пристроях можливі підвисання.');
+  }
+  if (result.scale < 1) {
+    verdict.push(`Спрайт закодовано в ${Math.round(result.scale * 100)}% роздільності — перевірте, чи читається дрібний текст.`);
+  }
+  el.verdict.textContent = verdict.join(' ');
+  el.verdict.className = `hint ${budget && zipKb > budget ? 'bad' : verdict.length ? 'warn' : 'ok'}`;
+
+  $('dl-backup').textContent = `⤓ Backup .${result.backupFile.split('.').pop()}`;
+  el.codeOut.textContent = result.htmlExternal;
+  renderPreview();
+}
+
+function renderPreview() {
+  if (!state.result) return;
+  el.preview.style.width = `${state.result.width}px`;
+  el.preview.style.height = `${state.result.height}px`;
+  el.preview.srcdoc = state.result.htmlInline;
+}
+
+/* ── budget autofit ───────────────────────────────────────────────── */
+
+/**
+ * Relative sprite weight per quality setting, interpolated from measurements
+ * on a photographic 300x600 creative. Only used to skip candidates that
+ * cannot possibly fit — every candidate we accept is really encoded.
+ */
+const Q_ANCHORS = [[28, 0.44], [45, 0.57], [60, 0.69], [80, 1.0], [100, 1.7]];
+
+function qualityFactor(q) {
+  if (q <= Q_ANCHORS[0][0]) return Q_ANCHORS[0][1];
+  for (let i = 1; i < Q_ANCHORS.length; i++) {
+    const [q1, f1] = Q_ANCHORS[i];
+    if (q <= q1) {
+      const [q0, f0] = Q_ANCHORS[i - 1];
+      return f0 + ((f1 - f0) * (q - q0)) / (q1 - q0);
+    }
+  }
+  return Q_ANCHORS[Q_ANCHORS.length - 1][1];
+}
+
+/**
+ * Candidate ladders, best first. Which quality you sacrifice is a creative
+ * decision, not a technical one: a creative carrying legal small print needs
+ * full resolution far more than it needs 15 fps, while a fast motion loop is
+ * the other way round.
+ */
+const LADDERS = {
+  sharpness: (fps) => [
+    [1, fps, 80], [1, fps, 62], [1, fps, 48], [1, 15, 58], [1, 15, 44],
+    [1, 12, 50], [1, 12, 38], [1, 10, 42], [1, 10, 32], [1, 8, 36], [1, 8, 26],
+    [0.85, 10, 42], [0.75, 10, 45], [0.6, 12, 50],
+  ],
+  smoothness: (fps) => [
+    [1, fps, 80], [1, fps, 58], [0.85, fps, 62], [0.85, fps, 48],
+    [0.75, fps, 55], [0.75, fps, 42], [0.6, fps, 50], [0.6, fps, 38],
+    [0.5, fps, 46], [0.5, fps, 32],
+  ],
+  balanced: (fps) => [
+    [1, fps, 80], [1, fps, 62], [1, fps, 48], [0.85, fps, 60], [0.85, 15, 62],
+    [0.75, 15, 62], [0.75, 15, 48], [0.75, 12, 55], [0.6, 12, 60], [0.6, 12, 45],
+    [0.6, 10, 45], [0.5, 12, 50], [0.5, 10, 42], [0.5, 8, 34],
+  ],
+};
+
+function buildLadder(base) {
+  const make = LADDERS[el.priority.value] || LADDERS.balanced;
+  const raw = make(base.fps);
+  const seen = new Set();
+  return raw
+    .map(([scale, fps, quality]) => ({ scale, fps: Math.min(fps, base.fps), quality }))
+    .filter((c) => {
+      const key = `${c.scale}|${c.fps}|${c.quality}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+async function autofit() {
+  const budget = Number(el.budget.value);
+  if (!budget) {
+    await guardedConvert();
+    return;
+  }
+
+  const base = currentOptions();
+  const ladder = buildLadder(base);
+  const span = base.end - base.start;
+  let reference = null; // { zip, frames, scale, quality } from an actual encode
+  let smallest = null;
+  let tried = 0;
+
+  for (const candidate of ladder) {
+    const frames = Math.max(1, Math.round(span * candidate.fps));
+
+    if (reference) {
+      const predicted = reference.zip
+        * (frames / reference.frames)
+        * ((candidate.scale * candidate.scale) / (reference.scale * reference.scale))
+        * (qualityFactor(candidate.quality) / qualityFactor(reference.quality));
+      // 1.35x leaves room for the predictor being wrong on the optimistic side.
+      const isLast = candidate === ladder[ladder.length - 1];
+      if (predicted / 1024 > budget * 1.35 && !isLast) continue;
+    }
+
+    tried++;
+    setProgress(0.5, `${Math.round(candidate.scale * 100)}% · ${candidate.fps} fps · q${candidate.quality}`);
+    const result = await convert({ ...base, ...candidate });
+    reference = { zip: result.sizes.zip, frames: result.frames, scale: candidate.scale, quality: candidate.quality };
+    if (!smallest || result.sizes.zip < smallest.sizes.zip) smallest = result;
+
+    if (result.sizes.zip / 1024 <= budget) {
+      applyCandidate(candidate);
+      showResult(result);
+      el.verdict.textContent = `Підібрано за ${tried} спроб${tried === 1 ? 'у' : 'и'}: `
+        + `${Math.round(candidate.scale * 100)}% роздільності, ${candidate.fps} fps, якість ${candidate.quality} — ZIP ${kb(result.sizes.zip)}.`;
+      el.verdict.className = 'hint ok';
+      setProgress(null);
+      return;
+    }
+  }
+
+  setProgress(null);
+  if (smallest) {
+    showResult(smallest);
+    el.verdict.textContent = `Не вдалося вкластися в ${budget} КБ навіть на мінімальних налаштуваннях (${kb(smallest.sizes.zip)}). `
+      + 'Обріжте анімацію, зменште розмір баннера або залиште більший бюджет.';
+    el.verdict.className = 'hint bad';
+  }
+}
+
+/** Reflect an autofit winner back into the form so the user can tweak from there. */
+function applyCandidate({ scale, fps, quality }) {
+  const scaleOption = [...el.scale.options].find((opt) => Number(opt.value) === scale);
+  if (scaleOption) el.scale.value = scaleOption.value;
+  const fpsOption = [...el.fps.options].find((opt) => Number(opt.value) === fps);
+  el.fps.value = fpsOption ? fpsOption.value : '0';
+  el.quality.value = quality;
+  el.qOut.textContent = quality;
+  estimate();
+}
+
+async function guardedConvert() {
+  showResult(await convert());
+}
+
+/* ── wiring ───────────────────────────────────────────────────────── */
+
+async function guard(action) {
+  if (state.busy || !state.meta) return;
+  state.busy = true;
+  el.convert.disabled = true;
+  el.autofit.disabled = true;
+  try {
+    await action();
+  } catch (error) {
+    setProgress(null);
+    el.verdict.textContent = error.message;
+    el.verdict.className = 'hint bad';
+    el.result.classList.remove('hidden');
+  } finally {
+    state.busy = false;
+    el.convert.disabled = false;
+    el.autofit.disabled = false;
+  }
+}
+
+el.dropzone.addEventListener('click', () => el.fileInput.click());
+el.dropzone.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.fileInput.click(); } });
+el.fileInput.addEventListener('change', () => { if (el.fileInput.files[0]) useFile(el.fileInput.files[0]); });
+
+['dragenter', 'dragover'].forEach((type) => el.dropzone.addEventListener(type, (e) => {
+  e.preventDefault();
+  el.dropzone.classList.add('over');
+}));
+['dragleave', 'drop'].forEach((type) => el.dropzone.addEventListener(type, (e) => {
+  e.preventDefault();
+  el.dropzone.classList.remove('over');
+}));
+el.dropzone.addEventListener('drop', (e) => {
+  const file = e.dataTransfer?.files?.[0];
+  if (file) useFile(file);
+});
+
+PRESETS.forEach(([value, text]) => {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = text;
+  el.preset.append(option);
+});
+
+el.preset.addEventListener('change', () => {
+  const preset = PRESETS.find(([value]) => value === el.preset.value);
+  if (!preset || !state.meta) return;
+  const [, , w, h] = preset;
+  if (w === 0) { el.w.value = state.meta.width; el.h.value = state.meta.height; }
+  else if (w > 0) { el.w.value = w; el.h.value = h; }
+  estimate();
+});
+
+function linkRatio(changed) {
+  if (!el.ratio.checked || !state.meta) return;
+  const ratio = state.meta.width / state.meta.height;
+  if (changed === 'w') el.h.value = Math.max(16, Math.round(Number(el.w.value) / ratio));
+  else el.w.value = Math.max(16, Math.round(Number(el.h.value) * ratio));
+}
+
+el.w.addEventListener('input', () => { linkRatio('w'); el.preset.value = 'custom'; estimate(); });
+el.h.addEventListener('input', () => { linkRatio('h'); el.preset.value = 'custom'; estimate(); });
+el.quality.addEventListener('input', () => { el.qOut.textContent = el.quality.value; });
+el.backup.addEventListener('input', () => { el.bkOut.textContent = el.backup.value; });
+el.transparent.addEventListener('change', syncTransparency);
+el.format.addEventListener('change', syncTransparency);
+[el.fps, el.start, el.end, el.scale].forEach((input) => input.addEventListener('input', estimate));
+
+el.convert.addEventListener('click', () => guard(guardedConvert));
+el.autofit.addEventListener('click', () => guard(autofit));
+el.replay.addEventListener('click', renderPreview);
+el.checker.addEventListener('change', () => el.stage.classList.toggle('checker', el.checker.checked));
+el.stage.classList.add('checker');
+
+$('dl-zip').addEventListener('click', () => state.result && download(state.result.zipBlob, `${state.result.base}-${state.result.width}x${state.result.height}.zip`));
+$('dl-html').addEventListener('click', () => state.result && download(new Blob([state.result.htmlInline], { type: 'text/html' }), 'index.html'));
+$('dl-sprite').addEventListener('click', () => state.result && download(state.result.spriteBlob, state.result.spriteFile));
+$('dl-backup').addEventListener('click', () => state.result && download(state.result.backupBlob, state.result.backupFile));
+
+/* Expose the pipeline so the demo build script can drive it headlessly. */
+window.__converter = { useFile, convert, currentOptions, state };
+
+</script>
+</body>
+</html>

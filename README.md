@@ -37,11 +37,19 @@
 Приклад із `demo/`: джерело 1538 КБ, 30 fps → **146 КБ ZIP**, 16 кадрів @ 8 fps,
 спрайт 1800×1800 у масштабі 1:1.
 
+## Один файл, без сервера
+
+[`dist/converter-standalone.html`](dist/converter-standalone.html) — той самий
+конвертер, зібраний в один файл: CSS і всі модулі інлайном. ES-модулі не
+вантажаться через `file://`, тому многофайлова версія вимагає http-сервера, а ця
+відкривається подвійним кліком — зручно, коли креатив не має покидати ноутбук.
+
 ## Локальний запуск
 
 ```bash
 npm run serve          # http://localhost:8080 — потрібен http(s), не file://
 npm run build:demo     # перезбирає demo/ у headless Chromium; це ж і e2e-тест
+npm run build:single   # перезбирає dist/converter-standalone.html
 ```
 
 `build:demo` проганяє повний шлях — зразок → автопідбір → ZIP → перевірка, що
@@ -58,6 +66,7 @@ assets/js/banner.js     генератор HTML-баннера і README пак�
 assets/js/zip.js        ZIP-writer (store-only, власний CRC32)
 assets/js/app.js        UI, автопідбір під бюджет
 tools/build-demo.mjs    e2e-тест і генератор demo/
+tools/build-single.mjs  збірка версії в один файл
 ```
 
 ZIP пишеться без DEFLATE: усе, що в нього кладеться, вже стиснуте (WebP/PNG/JPEG),

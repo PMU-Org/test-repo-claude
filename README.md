@@ -83,15 +83,19 @@ ZIP пишеться без DEFLATE: усе, що в нього кладетьс
 ## Деплой на GitHub Pages
 
 `.github/workflows/deploy-pages.yml` публікує корінь репозиторію як є — без
-кроку збірки, бо сайт це статичні файли. `enablement: true` у кроці
-`configure-pages` створює Pages-сайт сам, якщо його ще немає.
+кроку збірки, бо сайт це статичні файли. Тригериться пушем у default-бранч
+і вручну через **Run workflow**.
 
-Якщо воркфлоу падає з
+Перед першим запуском потрібна одна дія адміністратора репозиторію:
+**Settings → Pages → Source: GitHub Actions**. Автоматично це не робиться —
+`enablement: true` у кроці `configure-pages` б'є в REST-ендпоінт *Create a
+GitHub Pages site*, який вимагає **admin**-прав, а `GITHUB_TOKEN` вище
+`write` не піднімається, тож воркфлоу падає на:
 
 ```
 Create Pages site failed. Error: Resource not accessible by integration
 ```
 
-то `GITHUB_TOKEN` не має права створити сайт у цій організації — тоді
-адміністратор репозиторію один раз виставляє **Settings → Pages → Source:
-GitHub Actions**, і наступний пуш проходить без змін у коді.
+Видимість репозиторію тут ні до чого — помилка та сама і на публічному.
+Після перемикача в Settings воркфлоу проходить без жодних змін у коді, і
+сайт стає доступним на `https://pmu-org.github.io/test-repo-claude/`.

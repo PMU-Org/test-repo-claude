@@ -48,10 +48,10 @@ await page.waitForFunction(() => !window.__converter.state.busy && window.__conv
 const meta = await page.evaluate(() => window.__converter.state.meta);
 console.log('source:', meta);
 
-// Let the budget autofit pick the settings — that exercises the search path
-// and produces a demo that actually fits the 150 KB Google Ads limit.
+// Build against the Google Ads profile: JPEG sprite (WebP is not in Google's
+// allowed asset types) inside the 600 KB limit, picked by the budget autofit.
 await page.fill('#opt-click', 'https://example.com/delia');
-await page.selectOption('#opt-budget', '150');
+await page.selectOption('#opt-platform', 'google-ads');
 await page.click('#btn-autofit');
 await page.waitForSelector('#step-result:not(.hidden)', { timeout: 180000 });
 await page.waitForFunction(() => !window.__converter.state.busy, null, { timeout: 180000 });
@@ -70,10 +70,12 @@ const payload = await page.evaluate(async () => {
     frames: r.frames, cols: r.cols, fps: r.fps, sheetW: r.sheetW, sheetH: r.sheetH,
     sizes: r.sizes, width: r.width, height: r.height, scale: r.scale,
     verdict: document.getElementById('r-verdict').textContent,
+    checks: [...document.querySelectorAll('#r-checks li')].map((li) => `${li.className || 'ok'} — ${li.textContent}`),
   };
 });
 
 console.log('autofit:', payload.verdict);
+console.log('compliance:', payload.checks.join('\n            '));
 console.log('result:', {
   frames: payload.frames, grid: `${payload.cols}x${Math.ceil(payload.frames / payload.cols)}`,
   sheet: `${payload.sheetW}x${payload.sheetH}`, scale: payload.scale,
@@ -118,9 +120,15 @@ console.log('rendered box:', box.width + 'x' + box.height);
 if (Math.abs(box.width - payload.width) > 2 || Math.abs(box.height - payload.height) > 2) {
   problems.push(`banner renders at ${box.width}x${box.height}, expected ${payload.width}x${payload.height}`);
 }
-if (payload.sizes.zip / 1024 > 150) {
-  problems.push(`ZIP is ${(payload.sizes.zip / 1024).toFixed(1)} KB, over the 150 KB budget`);
+if (payload.sizes.zip / 1024 > 600) {
+  problems.push(`ZIP is ${(payload.sizes.zip / 1024).toFixed(1)} KB, over the 600 KB Google Ads limit`);
 }
+if (!payload.spriteFile.endsWith('.jpg') && !payload.spriteFile.endsWith('.png')) {
+  problems.push(`sprite is ${payload.spriteFile}, which Google Ads does not accept`);
+}
+const blocking = await page.locator('#r-checks li.bad').count();
+console.log('blocking compliance checks:', blocking);
+if (blocking) problems.push(`${blocking} blocking compliance check(s) on the demo build`);
 
 await browser.close();
 server.close();

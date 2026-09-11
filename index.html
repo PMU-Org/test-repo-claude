@@ -99,9 +99,9 @@
         <legend>Спрайт</legend>
         <label>Формат
           <select id="opt-format">
-            <option value="image/webp" selected>WebP — найменший, з альфою</option>
+            <option value="image/jpeg" selected>JPEG — без альфи</option>
             <option value="image/png">PNG — lossless, з альфою</option>
-            <option value="image/jpeg">JPEG — без альфи</option>
+            <option value="image/webp">WebP — найменший, але не всюди приймають</option>
           </select>
         </label>
         <label>Якість <output id="q-out">80</output>
@@ -134,11 +134,20 @@
     </div>
 
     <div class="budget">
+      <label>Платформа
+        <select id="opt-platform">
+          <option value="google-ads" selected>Google Ads — uploaded display</option>
+          <option value="dv360">Display &amp; Video 360 / CM360</option>
+          <option value="iab-lean">IAB LEAN — жорсткі 150 КБ</option>
+          <option value="any">Без профілю</option>
+        </select>
+      </label>
       <label>Бюджет розміру
         <select id="opt-budget">
-          <option value="150">150 КБ — Google Ads / IAB</option>
+          <option value="150">150 КБ</option>
           <option value="200">200 КБ</option>
-          <option value="500" selected>500 КБ</option>
+          <option value="500">500 КБ</option>
+          <option value="600" selected>600 КБ</option>
           <option value="0">Без обмежень</option>
         </select>
       </label>
@@ -151,6 +160,7 @@
       </label>
       <button type="button" class="btn" id="btn-autofit" title="Підбирає роздільність, fps і якість, щоб вкластися в бюджет">Підібрати під бюджет</button>
     </div>
+    <p class="hint" id="platform-note"></p>
     <p class="hint">Дрібний текст — юридичні дисклеймери, легальні позначки — «розсипається» вже на 75% роздільності. Якщо він є в кадрі, тримайте різкість.</p>
 
     <div class="actions">
@@ -185,6 +195,7 @@
           <div><dt>Пам'ять на декод</dt><dd id="r-mem">—</dd></div>
         </dl>
         <p class="hint" id="r-verdict"></p>
+        <ul class="checks" id="r-checks"></ul>
 
         <div class="downloads">
           <button type="button" class="btn primary" id="dl-zip">⤓ ZIP для Google&nbsp;Ads</button>

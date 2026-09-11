@@ -21,6 +21,43 @@ const PRESETS = [
   ['custom', 'Свій розмір', -1, -1],
 ];
 
+/**
+ * What each ad platform actually accepts. The image-format lists are the
+ * decisive part: WebP is absent from Google's allowed asset types for HTML5
+ * display creatives, so a WebP sprite is rejected on upload no matter how
+ * small it is.
+ *   Google Ads:  ZIP containing HTML and optionally CSS, JS, GIF, PNG, JPG,
+ *                JPEG, SVG — 600 KB, max 40 files.
+ *   DV360/CM360: .html .htm .css .js, images .jpg .jpeg .gif .png .svg,
+ *                fonts — up to 100 files, no hard size cap, animation <= 30 s.
+ */
+const PLATFORMS = {
+  'google-ads': {
+    label: 'Google Ads',
+    formats: ['image/jpeg', 'image/png'],
+    budget: 600, maxFiles: 40, maxAnimation: 30,
+    note: 'Google Ads приймає в ZIP лише HTML/CSS/JS та GIF, PNG, JPG, JPEG, SVG — WebP у переліку немає. Ліміт 600 КБ і до 40 файлів.',
+  },
+  dv360: {
+    label: 'Display & Video 360',
+    formats: ['image/jpeg', 'image/png'],
+    budget: 600, maxFiles: 100, maxAnimation: 30,
+    note: 'DV360 / CM360: дозволені .jpg, .jpeg, .gif, .png, .svg — WebP не в переліку. Жорсткого ліміту ваги немає, анімація до 30 с; 600 КБ тут як розумний дефолт.',
+  },
+  'iab-lean': {
+    label: 'IAB LEAN',
+    formats: ['image/jpeg', 'image/png', 'image/webp'],
+    budget: 150, maxFiles: null, maxAnimation: 30,
+    note: 'IAB LEAN — 150 КБ на весь креатив. Формат зображення не обмежений, але 150 КБ для 2 с фотографічного 300×600 означає 8 fps або нижче.',
+  },
+  any: {
+    label: 'Без профілю',
+    formats: ['image/jpeg', 'image/png', 'image/webp'],
+    budget: 0, maxFiles: null, maxAnimation: null,
+    note: 'Профіль не вибрано — перевірки сумісності вимкнені. Уточніть у майданчика дозволені типи файлів і ліміт ваги.',
+  },
+};
+
 const $ = (id) => document.getElementById(id);
 const el = {
   dropzone: $('dropzone'), fileInput: $('file-input'), sample: $('btn-sample'),
@@ -32,10 +69,11 @@ const el = {
   transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
   click: $('opt-click'), border: $('opt-border'), borderColor: $('opt-border-color'),
   backup: $('opt-backup'), bkOut: $('bk-out'),
-  budget: $('opt-budget'), priority: $('opt-priority'), autofit: $('btn-autofit'), convert: $('btn-convert'),
+  budget: $('opt-budget'), platform: $('opt-platform'), platformNote: $('platform-note'),
+  priority: $('opt-priority'), autofit: $('btn-autofit'), convert: $('btn-convert'),
   progress: $('progress'), bar: $('progress-bar'), label: $('progress-label'),
   stage: $('stage'), preview: $('preview'), replay: $('btn-replay'), checker: $('opt-checker'),
-  codeOut: $('code-out'), verdict: $('r-verdict'),
+  codeOut: $('code-out'), verdict: $('r-verdict'), checks: $('r-checks'),
 };
 
 const state = { file: null, url: null, video: null, meta: null, result: null, busy: false };
@@ -190,6 +228,7 @@ function currentOptions() {
     border: el.border.checked,
     borderColor: el.borderColor.value,
     budget: Number(el.budget.value),
+    platform: el.platform.value,
   };
 }
 
@@ -285,32 +324,85 @@ function showResult(result) {
   const budget = result.options.budget;
   const zipKb = result.sizes.zip / 1024;
   const memoryHeavy = result.sizes.memory > 64 * 1048576;
-  const zipCell = $('r-zip');
-  zipCell.className = !budget ? '' : zipKb <= budget ? 'ok' : 'bad';
+  $('r-zip').className = !budget ? '' : zipKb <= budget ? 'ok' : 'bad';
   $('r-mem').className = memoryHeavy ? 'warn' : '';
 
-  const verdict = [];
-  if (budget && zipKb > budget) {
-    verdict.push(`ZIP ${zipKb.toFixed(0)} КБ перевищує бюджет ${budget} КБ — натисніть «Підібрати під бюджет».`);
-  } else if (budget) {
-    verdict.push(`ZIP вкладається в ${budget} КБ.`);
-  }
-  if (result.loops !== 0 && result.frames / result.fps * (result.loops || 1) > 30) {
-    verdict.push('Загальна тривалість анімації > 30 с — ліміт IAB.');
-  }
-  if (memoryHeavy) {
-    verdict.push('Спрайт займає багато пам’яті на декод; на слабких пристроях можливі підвисання.');
-  }
-  if (result.scale < 1) {
-    verdict.push(`Спрайт закодовано в ${Math.round(result.scale * 100)}% роздільності — перевірте, чи читається дрібний текст.`);
-  }
-  el.verdict.textContent = verdict.join(' ');
-  el.verdict.className = `hint ${budget && zipKb > budget ? 'bad' : verdict.length ? 'warn' : 'ok'}`;
+  renderChecks(result, zipKb, memoryHeavy);
 
   $('dl-backup').textContent = `⤓ Backup .${result.backupFile.split('.').pop()}`;
   el.codeOut.textContent = result.htmlExternal;
   renderPreview();
 }
+
+/**
+ * Platform compliance, stated as pass/fail rather than prose: a rejected
+ * upload is the single most expensive thing this tool can produce, and the
+ * format check is the one that silently costs a round trip with trafficking.
+ */
+function renderChecks(result, zipKb, memoryHeavy) {
+  const platform = PLATFORMS[result.options.platform] || PLATFORMS.any;
+  const mime = result.options.mime;
+  const ext = result.spriteFile.split('.').pop().toUpperCase();
+  const animation = (result.frames / result.fps) * (result.loops || 1);
+  const items = [];
+
+  if (platform.formats.length && !platform.formats.includes(mime)) {
+    const allowed = platform.formats.map((m) => m.split('/')[1].toUpperCase()).join(' / ');
+    items.push(['bad', `${ext} не входить у перелік дозволених типів ${platform.label} — креатив відхилять на завантаженні. Переключіть формат спрайта на ${allowed}.`]);
+  } else if (platform.formats.length) {
+    items.push(['ok', `${ext} у переліку дозволених типів ${platform.label}.`]);
+  }
+
+  if (budgetOf(platform, result)) {
+    const limit = budgetOf(platform, result);
+    items.push([zipKb <= limit ? 'ok' : 'bad',
+      `ZIP ${zipKb.toFixed(0)} КБ ${zipKb <= limit ? 'вкладається в' : 'перевищує'} ліміт ${limit} КБ.`]);
+  }
+
+  if (platform.maxFiles) {
+    items.push(['ok', `${ZIP_FILE_COUNT} файли в архіві — ліміт ${platform.label}: ${platform.maxFiles}.`]);
+  }
+
+  if (platform.maxAnimation) {
+    items.push([animation <= platform.maxAnimation ? 'ok' : 'bad',
+      animation <= platform.maxAnimation
+        ? `Анімація ${animation.toFixed(1)} с — у межах ліміту ${platform.maxAnimation} с.`
+        : `Анімація ${animation.toFixed(1)} с перевищує ліміт ${platform.maxAnimation} с.`]);
+  }
+
+  if (result.scale < 1) {
+    items.push(['warn', `Спрайт закодовано в ${Math.round(result.scale * 100)}% роздільності — перевірте, чи читається дрібний текст.`]);
+  }
+  if (memoryHeavy) {
+    items.push(['warn', `Спрайт займає ${(result.sizes.memory / 1048576).toFixed(0)} МБ на декод — на слабких пристроях можливі підвисання.`]);
+  }
+  if (mime === 'image/png' && !result.background) {
+    items.push(['warn', 'PNG зі альфою важить у рази більше за WebP. Якщо прозорість не потрібна, JPEG дасть ту саму якість значно дешевше.']);
+  }
+
+  el.checks.innerHTML = '';
+  for (const [kind, text] of items) {
+    const li = document.createElement('li');
+    li.className = kind === 'ok' ? '' : kind;
+    li.textContent = text;
+    el.checks.append(li);
+  }
+
+  const blocking = items.filter(([kind]) => kind === 'bad');
+  el.verdict.textContent = blocking.length
+    ? `${blocking.length} блокуюч${blocking.length === 1 ? 'а проблема' : 'і проблеми'} для ${platform.label}.`
+    : platform.formats.length ? `Пакет відповідає вимогам ${platform.label}.` : '';
+  el.verdict.className = `hint ${blocking.length ? 'bad' : 'ok'}`;
+}
+
+/** The platform limit, or the user's own budget when it is stricter. */
+function budgetOf(platform, result) {
+  const chosen = result.options.budget;
+  if (!platform.budget) return chosen || 0;
+  return chosen ? Math.min(chosen, platform.budget) : platform.budget;
+}
+
+const ZIP_FILE_COUNT = 3; // index.html + sprite + README.txt
 
 function renderPreview() {
   if (!state.result) return;
@@ -379,13 +471,14 @@ function buildLadder(base) {
 }
 
 async function autofit() {
-  const budget = Number(el.budget.value);
+  const base = currentOptions();
+  const platform = PLATFORMS[base.platform] || PLATFORMS.any;
+  const budget = platform.budget ? Math.min(base.budget || platform.budget, platform.budget) : base.budget;
   if (!budget) {
     await guardedConvert();
     return;
   }
 
-  const base = currentOptions();
   const ladder = buildLadder(base);
   const span = base.end - base.start;
   let reference = null; // { zip, frames, scale, quality } from an actual encode
@@ -414,9 +507,9 @@ async function autofit() {
     if (result.sizes.zip / 1024 <= budget) {
       applyCandidate(candidate);
       showResult(result);
-      el.verdict.textContent = `Підібрано за ${tried} спроб${tried === 1 ? 'у' : 'и'}: `
+      const summary = `Підібрано за ${tried} спроб${tried === 1 ? 'у' : 'и'}: `
         + `${Math.round(candidate.scale * 100)}% роздільності, ${candidate.fps} fps, якість ${candidate.quality} — ZIP ${kb(result.sizes.zip)}.`;
-      el.verdict.className = 'hint ok';
+      el.verdict.textContent = `${summary} ${el.verdict.textContent}`.trim();
       setProgress(null);
       return;
     }
@@ -428,6 +521,8 @@ async function autofit() {
     el.verdict.textContent = `Не вдалося вкластися в ${budget} КБ навіть на мінімальних налаштуваннях (${kb(smallest.sizes.zip)}). `
       + 'Обріжте анімацію, зменште розмір баннера або залиште більший бюджет.';
     el.verdict.className = 'hint bad';
+    setProgress(null);
+    return;
   }
 }
 
@@ -510,6 +605,28 @@ PRESETS.forEach(([value, text]) => {
   el.preset.append(option);
 });
 
+function applyPlatform({ resetBudget = true } = {}) {
+  const platform = PLATFORMS[el.platform.value] || PLATFORMS.any;
+  el.platformNote.textContent = platform.note;
+
+  // Flag, do not silently rewrite: an operator may knowingly target a network
+  // that takes WebP, and the checks in the result panel say what it costs.
+  const disallowed = platform.formats.length && !platform.formats.includes(el.format.value);
+  el.platformNote.className = `hint ${disallowed ? 'bad' : ''}`;
+  if (disallowed) {
+    el.platformNote.textContent = `${platform.note} Поточний формат спрайта не підійде.`;
+  }
+
+  if (resetBudget && platform.budget) {
+    const option = [...el.budget.options].find((o) => Number(o.value) === platform.budget);
+    if (option) el.budget.value = option.value;
+  }
+  if (state.result) showResult(state.result);
+}
+
+el.platform.addEventListener('change', () => applyPlatform());
+el.format.addEventListener('change', () => applyPlatform({ resetBudget: false }));
+
 el.preset.addEventListener('change', () => {
   const preset = PRESETS.find(([value]) => value === el.preset.value);
   if (!preset || !state.meta) return;
@@ -539,6 +656,7 @@ el.autofit.addEventListener('click', () => guard(autofit));
 el.replay.addEventListener('click', renderPreview);
 el.checker.addEventListener('change', () => el.stage.classList.toggle('checker', el.checker.checked));
 el.stage.classList.add('checker');
+applyPlatform();
 
 $('dl-zip').addEventListener('click', () => state.result && download(state.result.zipBlob, `${state.result.base}-${state.result.width}x${state.result.height}.zip`));
 $('dl-html').addEventListener('click', () => state.result && download(new Blob([state.result.htmlInline], { type: 'text/html' }), 'index.html'));

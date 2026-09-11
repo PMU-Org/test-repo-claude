@@ -172,6 +172,13 @@ output { font-family: var(--mono); color: var(--ink); font-size: 12px; }
 #preview { border: 0; display: block; background: transparent; max-width: 100%; }
 
 .stats { margin-top: 0; }
+.checks { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 5px; font-size: 12.5px; }
+.checks li { display: flex; gap: 8px; align-items: baseline; color: var(--ink-dim); }
+.checks li::before { content: "✓"; color: var(--ok); flex: none; font-size: 12px; }
+.checks li.bad::before { content: "✕"; color: var(--bad); }
+.checks li.warn::before { content: "!"; color: var(--warn); }
+.checks li.bad { color: var(--ink); }
+
 .downloads { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 9px; }
 
 .code { margin-top: 16px; }

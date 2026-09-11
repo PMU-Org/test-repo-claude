@@ -10,10 +10,10 @@ html, body { margin: 0; padding: 0; background: transparent; }
 #ad { display:block;position:relative;width:300px;height:600px;overflow:hidden;text-decoration:none;box-sizing:border-box;cursor:pointer;background:#ffffff;border:1px solid #d9d9d9; }
 #frame {
   position: absolute; left: 0; top: 0; width: 300px; height: 600px;
-  background-image: url(sprite.webp);
+  background-image: url(sprite.jpg);
   background-repeat: no-repeat;
   background-position: 0 0;
-  background-size: 1800px 1800px;
+  background-size: 2400px 2400px;
 }
 </style>
 </head>
@@ -22,7 +22,7 @@ html, body { margin: 0; padding: 0; background: transparent; }
 <script>
 var clickTag = "https://example.com/delia";
 (function () {
-  var FRAMES = 16, COLS = 6, FW = 300, FH = 600, FPS = 8, LOOPS = 3;
+  var FRAMES = 30, COLS = 8, FW = 300, FH = 600, FPS = 15, LOOPS = 3;
   var el = document.getElementById('frame'), ad = document.getElementById('ad');
   var idx = 0, loops = 0, acc = 0, prev = 0, raf = 0, step = 1000 / FPS;
 

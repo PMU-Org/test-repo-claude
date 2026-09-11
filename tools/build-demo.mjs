@@ -50,10 +50,10 @@ await page.waitForFunction(() => !window.__converter.state.busy && window.__conv
 const meta = await page.evaluate(() => window.__converter.state.meta);
 console.log('source:', meta);
 
-// Build against the Google Ads profile: JPEG sprite (WebP is not in Google's
-// allowed asset types) inside the 600 KB limit, picked by the budget autofit.
+// Build against the Admixer Standard HTML5 profile: body.html in the archive
+// root, JPEG sprite as a separate file, inside 300 KB, picked by the autofit.
 await page.fill('#opt-click', 'https://example.com/delia');
-await page.selectOption('#opt-platform', 'google-ads');
+await page.selectOption('#opt-platform', 'admixer');
 await page.click('#btn-autofit');
 await page.waitForSelector('#step-result:not(.hidden)', { timeout: 180000 });
 await page.waitForFunction(() => !window.__converter.state.busy, null, { timeout: 180000 });
@@ -71,6 +71,7 @@ const payload = await page.evaluate(async () => {
     spriteFile: r.spriteFile, backupFile: r.backupFile,
     frames: r.frames, cols: r.cols, fps: r.fps, sheetW: r.sheetW, sheetH: r.sheetH,
     sizes: r.sizes, width: r.width, height: r.height, scale: r.scale,
+    entryFile: r.entryFile, inlineSprite: r.inlineSprite, zipFiles: r.zipFiles, api: r.api,
     verdict: document.getElementById('r-verdict').textContent,
     checks: [...document.querySelectorAll('#r-checks li')].map((li) => `${li.className || 'ok'} — ${li.textContent}`),
   };
@@ -88,17 +89,17 @@ console.log('result:', {
 
 await rm(OUT, { recursive: true, force: true });
 await mkdir(OUT, { recursive: true });
-// index.html is the self-contained build — the same bytes the ZIP carries —
-// so the demo folder behaves exactly like what a user downloads.
-await writeFile(join(OUT, 'index.html'), payload.htmlInline);
+// The demo folder mirrors the ZIP exactly: the entry file the platform expects
+// plus the separate sprite it references.
+const ENTRY = payload.entryFile;
+await writeFile(join(OUT, ENTRY), payload.inlineSprite ? payload.htmlInline : payload.htmlExternal);
 await writeFile(join(OUT, payload.spriteFile), Buffer.from(payload.sprite, 'base64'));
 await writeFile(join(OUT, payload.backupFile), Buffer.from(payload.backup, 'base64'));
-await writeFile(join(OUT, 'index-with-separate-sprite.html'), payload.htmlExternal);
 await writeFile(join(OUT, `delia-red-${payload.width}x${payload.height}.zip`), Buffer.from(payload.zip, 'base64'));
 
 // Verify the written banner actually animates: sample the sprite offset over time.
 const check = await browser.newPage({ viewport: { width: 420, height: 700 } });
-await check.goto(`http://127.0.0.1:${PORT}/demo/delia-red-300x600/index.html`);
+await check.goto(`http://127.0.0.1:${PORT}/demo/delia-red-300x600/${ENTRY}`);
 await check.waitForSelector('#frame');
 const offsets = [];
 for (let i = 0; i < 6; i++) {
@@ -112,39 +113,10 @@ for (let i = 0; i < 6; i++) {
 console.log('background-position samples:', offsets.join(' | '));
 if (new Set(offsets).size < 3) problems.push('banner does not appear to animate');
 
-const adSize = await check.getAttribute('meta[name="ad.size"]', 'content');
-const clickTag = await check.evaluate(() => window.clickTag);
-console.log('ad.size:', adSize, '| clickTag:', clickTag);
-if (adSize !== `width=${payload.width},height=${payload.height}`) problems.push('ad.size meta is wrong');
-if (!clickTag) problems.push('clickTag is missing');
-
-// A scaled sprite must still lay out at exactly the declared banner size.
-const box = await check.locator('#ad').boundingBox();
-console.log('rendered box:', box.width + 'x' + box.height);
-if (Math.abs(box.width - payload.width) > 2 || Math.abs(box.height - payload.height) > 2) {
-  problems.push(`banner renders at ${box.width}x${box.height}, expected ${payload.width}x${payload.height}`);
-}
-if (payload.sizes.zip / 1024 > 600) {
-  problems.push(`ZIP is ${(payload.sizes.zip / 1024).toFixed(1)} KB, over the 600 KB Google Ads limit`);
-}
-if (!payload.spriteFile.endsWith('.jpg') && !payload.spriteFile.endsWith('.png')) {
-  problems.push(`sprite is ${payload.spriteFile}, which Google Ads does not accept`);
-}
-const blocking = await page.locator('#r-checks li.bad').count();
-console.log('blocking compliance checks:', blocking);
-if (blocking) problems.push(`${blocking} blocking compliance check(s) on the demo build`);
-
-// The regression that matters most: index.html moved somewhere on its own,
-// opened over file://, must still render the creative rather than a blank box.
-const solo = join(tmpdir(), `banner-solo-${Date.now()}`);
-await mkdir(solo, { recursive: true });
-await writeFile(join(solo, 'index.html'), payload.htmlInline);
-const alone = await browser.newPage({ viewport: { width: 400, height: 700 } });
-await alone.goto(pathToFileURL(join(solo, 'index.html')).href);
-await alone.waitForSelector('#frame');
-const render = await alone.evaluate(async () => {
-  const el = document.getElementById('frame');
-  const url = getComputedStyle(el).backgroundImage.slice(5, -2).replace(/^"|"$/g, '');
+// Same origin over http, so the sprite pixels are readable: confirm the frame
+// carries real contrast rather than a flat or blank surface.
+const contrast = await check.evaluate(async () => {
+  const url = getComputedStyle(document.getElementById('frame')).backgroundImage.slice(5, -2).replace(/^"|"$/g, '');
   const img = new Image();
   const ok = await new Promise((res) => { img.onload = () => res(true); img.onerror = () => res(false); img.src = url; });
   if (!ok) return { ok: false };
@@ -155,26 +127,141 @@ const render = await alone.evaluate(async () => {
   const data = ctx.getImageData(0, 0, 60, 120).data;
   let min = 255, max = 0;
   for (let i = 0; i < data.length; i += 4) { if (data[i] < min) min = data[i]; if (data[i] > max) max = data[i]; }
-  return { ok: true, scheme: url.slice(0, 5), naturalWidth: img.naturalWidth, contrast: max - min };
+  return { ok: true, contrast: max - min };
 });
-console.log('standalone index.html over file://:', render);
-if (!render.ok) problems.push('standalone index.html could not load its sprite');
-else if (render.contrast < 30) problems.push('standalone index.html renders a flat/blank frame');
+console.log('first-frame contrast:', contrast);
+if (!contrast.ok) problems.push('served banner could not load its sprite');
+else if (contrast.contrast < 30) problems.push('served banner renders a flat/blank frame');
+
+if (payload.api === 'admixer') {
+  const shape = await check.evaluate(() => ({
+    stylesInBody: !!document.querySelector('body > style'),
+    creativeInBody: !!document.querySelector('body > #ad'),
+    headHasStyle: !!document.querySelector('head style'),
+  }));
+  console.log('admixer document shape:', shape);
+  if (!shape.stylesInBody || !shape.creativeInBody) problems.push('Admixer build must keep styles and creative inside <body>');
+  if (shape.headHasStyle) problems.push('Admixer build still has a <style> in <head>');
+} else {
+  const adSize = await check.getAttribute('meta[name="ad.size"]', 'content');
+  const clickTag = await check.evaluate(() => window.clickTag);
+  console.log('ad.size:', adSize, '| clickTag:', clickTag);
+  if (adSize !== `width=${payload.width},height=${payload.height}`) problems.push('ad.size meta is wrong');
+  if (!clickTag) problems.push('clickTag is missing');
+}
+
+// A scaled sprite must still lay out at exactly the declared banner size.
+const box = await check.locator('#ad').boundingBox();
+console.log('rendered box:', box.width + 'x' + box.height);
+if (Math.abs(box.width - payload.width) > 2 || Math.abs(box.height - payload.height) > 2) {
+  problems.push(`banner renders at ${box.width}x${box.height}, expected ${payload.width}x${payload.height}`);
+}
+if (payload.api === 'admixer') {
+  if (payload.sizes.zip / 1024 > 300) problems.push(`ZIP is ${(payload.sizes.zip / 1024).toFixed(1)} KB, over Admixer's 300 KB`);
+  if (payload.entryFile !== 'body.html') problems.push(`Admixer entry file must be body.html, got ${payload.entryFile}`);
+  if (payload.inlineSprite) problems.push('Admixer requires the sprite as a separate file');
+  if (payload.zipFiles !== 2) problems.push(`Admixer ZIP should hold exactly body.html and the sprite, got ${payload.zipFiles} entries`);
+}
+if (!payload.spriteFile.endsWith('.jpg') && !payload.spriteFile.endsWith('.png')) {
+  problems.push(`sprite is ${payload.spriteFile}, which Google Ads does not accept`);
+}
+const blocking = await page.locator('#r-checks li.bad').count();
+console.log('blocking compliance checks:', blocking);
+if (blocking) problems.push(`${blocking} blocking compliance check(s) on the demo build`);
+
+// The regression that matters most: the package extracted somewhere on its
+// own, opened over file://, must render the creative rather than a blank box.
+const solo = join(tmpdir(), `banner-solo-${Date.now()}`);
+await mkdir(solo, { recursive: true });
+await writeFile(join(solo, ENTRY), payload.inlineSprite ? payload.htmlInline : payload.htmlExternal);
+if (!payload.inlineSprite) {
+  await writeFile(join(solo, payload.spriteFile), Buffer.from(payload.sprite, 'base64'));
+}
+const alone = await browser.newPage({ viewport: { width: 400, height: 700 } });
+await alone.goto(pathToFileURL(join(solo, ENTRY)).href);
+await alone.waitForSelector('#frame');
+// Pixel reads are not possible here — a file:// image taints the canvas — so
+// this page proves the sprite loads and plays; the contrast check runs on the
+// http-served copy above.
+const render = await alone.evaluate(async () => {
+  const url = getComputedStyle(document.getElementById('frame')).backgroundImage.slice(5, -2).replace(/^"|"$/g, '');
+  const img = new Image();
+  const ok = await new Promise((res) => { img.onload = () => res(true); img.onerror = () => res(false); img.src = url; });
+  return { ok, scheme: url.slice(0, 5), naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight };
+});
+console.log(`extracted ${ENTRY} over file://:`, render);
+if (!render.ok) problems.push(`extracted ${ENTRY} could not load its sprite`);
+if (render.naturalWidth !== payload.sheetW) {
+  problems.push(`extracted ${ENTRY} loaded a sprite of ${render.naturalWidth}px, expected ${payload.sheetW}px`);
+}
+// Without the platform API present the creative must start by itself.
+const soloOffsets = [];
+for (let i = 0; i < 4; i++) {
+  soloOffsets.push(await alone.locator('#frame').evaluate((e) => getComputedStyle(e).backgroundPosition));
+  await alone.waitForTimeout(160);
+}
+console.log('  animates without the platform API:', new Set(soloOffsets).size > 2 ? 'yes' : 'NO');
+if (new Set(soloOffsets).size < 3) problems.push(`extracted ${ENTRY} does not animate without the platform API`);
 await alone.close();
 await rm(solo, { recursive: true, force: true });
 
 // And the separate-sprite build must explain itself rather than go white.
 const orphanDir = join(tmpdir(), `banner-orphan-${Date.now()}`);
 await mkdir(orphanDir, { recursive: true });
-await writeFile(join(orphanDir, 'index.html'), payload.htmlExternal);
+await writeFile(join(orphanDir, ENTRY), payload.htmlExternal);
 const orphan = await browser.newPage({ viewport: { width: 400, height: 700 } });
-await orphan.goto(pathToFileURL(join(orphanDir, 'index.html')).href);
+await orphan.goto(pathToFileURL(join(orphanDir, ENTRY)).href);
 await orphan.waitForTimeout(600);
 const notice = (await orphan.locator('#frame').innerText()).trim();
-console.log('orphaned index.html shows:', JSON.stringify(notice.slice(0, 60) + '…'));
-if (!notice) problems.push('orphaned index.html still renders silently blank');
+console.log(`orphaned ${ENTRY} shows:`, JSON.stringify(notice.slice(0, 60) + '…'));
+if (!notice) problems.push(`orphaned ${ENTRY} still renders silently blank`);
 await orphan.close();
 await rm(orphanDir, { recursive: true, force: true });
+
+// Admixer's API cannot be exercised for real from here, so stand in a mock
+// that records the contract: playback must wait for its load event and the
+// exit must go through click() instead of opening a window itself.
+if (payload.api === 'admixer') {
+  const mockDir = join(tmpdir(), `banner-mock-${Date.now()}`);
+  await mkdir(mockDir, { recursive: true });
+  await writeFile(join(mockDir, ENTRY), payload.htmlExternal);
+  await writeFile(join(mockDir, payload.spriteFile), Buffer.from(payload.sprite, 'base64'));
+  const mock = await browser.newPage({ viewport: { width: 400, height: 700 } });
+  await mock.addInitScript(() => {
+    window.__calls = { on: [], click: [], windowOpen: 0 };
+    window.__fire = null;
+    window.globalHTML5Api = {
+      on: (event, handler) => { window.__calls.on.push(event); if (event === 'load') window.__fire = handler; },
+      click: (url) => { window.__calls.click.push(url === undefined ? '(no argument)' : url); },
+    };
+    const open = window.open;
+    window.open = function (...args) { window.__calls.windowOpen++; return open.apply(window, args); };
+  });
+  await mock.goto(pathToFileURL(join(mockDir, ENTRY)).href);
+  await mock.waitForSelector('#frame');
+  await mock.waitForTimeout(400);
+
+  const held = await mock.evaluate(() => ({
+    subscribed: window.__calls.on,
+    positionBeforeLoad: getComputedStyle(document.getElementById('frame')).backgroundPosition,
+  }));
+  await mock.evaluate(() => window.__fire && window.__fire());
+  await mock.waitForTimeout(400);
+  await mock.click('#ad');
+  const after = await mock.evaluate(() => ({
+    calls: window.__calls,
+    positionAfterLoad: getComputedStyle(document.getElementById('frame')).backgroundPosition,
+  }));
+
+  console.log('mock globalHTML5Api:', { subscribed: held.subscribed, ...after.calls });
+  if (!held.subscribed.includes('load')) problems.push('Admixer build does not subscribe to globalHTML5Api load');
+  if (held.positionBeforeLoad !== '0px 0px') problems.push('Admixer build animated before the load event fired');
+  if (after.positionAfterLoad === '0px 0px') problems.push('Admixer build did not start after the load event');
+  if (after.calls.click.length !== 1) problems.push(`expected one globalHTML5Api.click() call, got ${after.calls.click.length}`);
+  if (after.calls.windowOpen !== 0) problems.push('Admixer build opened a window instead of using globalHTML5Api.click()');
+  await mock.close();
+  await rm(mockDir, { recursive: true, force: true });
+}
 
 await browser.close();
 server.close();

@@ -131,6 +131,7 @@
         <label>clickTag / цільовий URL
           <input type="url" id="opt-click" placeholder="https://example.com/landing" value="https://example.com/">
         </label>
+        <label class="check"><input type="checkbox" id="opt-click-in-code"> URL у коді креатива</label>
         <label class="check"><input type="checkbox" id="opt-border" checked> Рамка 1&nbsp;px</label>
         <label id="wrap-border">Колір рамки <input type="color" id="opt-border-color" value="#d9d9d9"></label>
         <label>Кадр для backup-зображення <output id="bk-out">1</output>
@@ -142,7 +143,8 @@
     <div class="budget">
       <label>Платформа
         <select id="opt-platform">
-          <option value="google-ads" selected>Google Ads — uploaded display</option>
+          <option value="admixer" selected>Admixer — Standard HTML5</option>
+          <option value="google-ads">Google Ads — uploaded display</option>
           <option value="dv360">Display &amp; Video 360 / CM360</option>
           <option value="iab-lean">IAB LEAN — жорсткі 150 КБ</option>
           <option value="any">Без профілю</option>
@@ -150,10 +152,11 @@
       </label>
       <label>Бюджет розміру
         <select id="opt-budget">
+          <option value="300" selected>300 КБ</option>
           <option value="150">150 КБ</option>
           <option value="200">200 КБ</option>
           <option value="500">500 КБ</option>
-          <option value="600" selected>600 КБ</option>
+          <option value="600">600 КБ</option>
           <option value="0">Без обмежень</option>
         </select>
       </label>
@@ -196,7 +199,7 @@
           <div><dt>Кадрів</dt><dd id="r-frames">—</dd></div>
           <div><dt>Спрайт</dt><dd id="r-sheet">—</dd></div>
           <div><dt>Спрайт, вага</dt><dd id="r-sprite">—</dd></div>
-          <div><dt>Один HTML</dt><dd id="r-html">—</dd></div>
+          <div><dt>Точка входу</dt><dd id="r-entry">—</dd></div>
           <div><dt>ZIP-пакет</dt><dd id="r-zip">—</dd></div>
           <div><dt>Пам'ять на декод</dt><dd id="r-mem">—</dd></div>
         </dl>
@@ -204,8 +207,8 @@
         <ul class="checks" id="r-checks"></ul>
 
         <div class="downloads">
-          <button type="button" class="btn primary" id="dl-zip">⤓ ZIP для Google&nbsp;Ads</button>
-          <button type="button" class="btn" id="dl-html">⤓ Один файл index.html</button>
+          <button type="button" class="btn primary" id="dl-zip">⤓ ZIP-пакет</button>
+          <button type="button" class="btn" id="dl-html">⤓ Один файл для перегляду</button>
           <button type="button" class="btn" id="dl-sprite">⤓ Спрайт</button>
           <button type="button" class="btn" id="dl-backup">⤓ Backup .png</button>
         </div>

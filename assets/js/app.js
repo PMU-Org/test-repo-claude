@@ -32,29 +32,56 @@ const PRESETS = [
  *                fonts — up to 100 files, no hard size cap, animation <= 30 s.
  */
 const PLATFORMS = {
+  admixer: {
+    label: 'Admixer Standard HTML5',
+    api: 'admixer',
+    entryFile: 'body.html',
+    formats: ['image/jpeg', 'image/png'],
+    budget: 300, maxFiles: null, maxAnimation: null,
+    forcePackaging: 'assets', allowReadme: false,
+    note: 'Admixer Standard HTML5: точка входу — body.html у корені архіву, макс. 300 КБ без відео, '
+      + 'дозволені .jpg, .png, .gif, .svg, .mp4. Ассети мають бути окремими файлами, креатив живе всередині '
+      + '<body>, старт на globalHTML5Api.on(\'load\'), клік через globalHTML5Api.click().',
+  },
   'google-ads': {
     label: 'Google Ads',
+    api: 'standard',
+    entryFile: 'index.html',
     formats: ['image/jpeg', 'image/png'],
     budget: 600, maxFiles: 40, maxAnimation: 30,
-    note: 'Google Ads приймає в ZIP лише HTML/CSS/JS та GIF, PNG, JPG, JPEG, SVG — WebP у переліку немає. Ліміт 600 КБ і до 40 файлів.',
+    forcePackaging: null, allowReadme: true,
+    note: 'Google Ads приймає в ZIP лише HTML/CSS/JS та GIF, PNG, JPG, JPEG, SVG — WebP у переліку немає. '
+      + 'Ліміт 600 КБ і до 40 файлів.',
   },
   dv360: {
     label: 'Display & Video 360',
+    api: 'standard',
+    entryFile: 'index.html',
     formats: ['image/jpeg', 'image/png'],
     budget: 600, maxFiles: 100, maxAnimation: 30,
-    note: 'DV360 / CM360: дозволені .jpg, .jpeg, .gif, .png, .svg — WebP не в переліку. Жорсткого ліміту ваги немає, анімація до 30 с; 600 КБ тут як розумний дефолт.',
+    forcePackaging: null, allowReadme: true,
+    note: 'DV360 / CM360: дозволені .jpg, .jpeg, .gif, .png, .svg — WebP не в переліку. Жорсткого ліміту ваги '
+      + 'немає, анімація до 30 с; 600 КБ тут як розумний дефолт.',
   },
   'iab-lean': {
     label: 'IAB LEAN',
+    api: 'standard',
+    entryFile: 'index.html',
     formats: ['image/jpeg', 'image/png', 'image/webp'],
     budget: 150, maxFiles: null, maxAnimation: 30,
-    note: 'IAB LEAN — 150 КБ на весь креатив. Формат зображення не обмежений, але 150 КБ для 2 с фотографічного 300×600 означає 8 fps або нижче.',
+    forcePackaging: null, allowReadme: true,
+    note: 'IAB LEAN — 150 КБ на весь креатив. Формат зображення не обмежений, але 150 КБ для 2 с '
+      + 'фотографічного 300×600 означає 8 fps або нижче.',
   },
   any: {
     label: 'Без профілю',
-    formats: ['image/jpeg', 'image/png', 'image/webp'],
+    api: 'standard',
+    entryFile: 'index.html',
+    formats: [],
     budget: 0, maxFiles: null, maxAnimation: null,
-    note: 'Профіль не вибрано — перевірки сумісності вимкнені. Уточніть у майданчика дозволені типи файлів і ліміт ваги.',
+    forcePackaging: null, allowReadme: true,
+    note: 'Профіль не вибрано — перевірки сумісності вимкнені. Уточніть у майданчика дозволені типи файлів, '
+      + 'ім\'я точки входу і ліміт ваги.',
   },
 };
 
@@ -67,7 +94,7 @@ const el = {
   fps: $('opt-fps'), start: $('opt-start'), end: $('opt-end'), loops: $('opt-loops'),
   format: $('opt-format'), quality: $('opt-quality'), qOut: $('q-out'), scale: $('opt-scale'),
   transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
-  click: $('opt-click'), packaging: $('opt-packaging'),
+  click: $('opt-click'), packaging: $('opt-packaging'), clickInCode: $('opt-click-in-code'),
   border: $('opt-border'), borderColor: $('opt-border-color'),
   backup: $('opt-backup'), bkOut: $('bk-out'),
   budget: $('opt-budget'), platform: $('opt-platform'), platformNote: $('platform-note'),
@@ -241,6 +268,7 @@ function currentOptions() {
     budget: Number(el.budget.value),
     platform: el.platform.value,
     inlineSprite: el.packaging.value === 'inline',
+    clickInCode: el.clickInCode.checked,
   };
 }
 
@@ -268,6 +296,7 @@ function estimate() {
 
 async function convert(options) {
   const o = options || currentOptions();
+  const platform = PLATFORMS[o.platform] || PLATFORMS.any;
   const spriteW = Math.max(16, Math.round(o.width * o.scale));
   const spriteH = Math.max(16, Math.round(o.height * o.scale));
 
@@ -288,6 +317,7 @@ async function convert(options) {
   const base = slug(state.file.name);
   const spriteFile = `sprite.${ext}`;
   const backupFile = `backup.${o.background ? 'jpg' : 'png'}`;
+  const entryFile = platform.entryFile;
 
   const shared = {
     name: base, sourceName: state.file.name,
@@ -295,29 +325,43 @@ async function convert(options) {
     frames: canvases.length, cols: sheet.cols, fps: o.fps, loops: o.loops,
     sheetW: sheet.sheetW, sheetH: sheet.sheetH, scale: o.scale,
     clickUrl: o.clickUrl, border: o.border, borderColor: o.borderColor, background: o.background,
-    spriteFile, backupFile,
+    spriteFile, backupFile, entryFile,
+    api: platform.api, clickInCode: o.clickInCode,
+    platformLabel: platform.label,
   };
 
   const htmlExternal = buildBannerHtml({ ...shared, spriteUrl: spriteFile, inlineSprite: false });
   const spriteDataUrl = await blobToDataURL(spriteBlob);
   const htmlInline = buildBannerHtml({ ...shared, spriteUrl: spriteDataUrl, inlineSprite: true });
 
-  // Default packaging puts the sprite inside index.html. It costs ~33% in
-  // base64 overhead and buys a creative that cannot be broken by a partial
-  // extraction — the failure that renders as a silent white box.
-  const zipEntries = o.inlineSprite
-    ? [{ name: 'index.html', data: textBytes(htmlInline) }]
-    : [{ name: 'index.html', data: textBytes(htmlExternal) },
+  // Packaging is the platform's call where it has one. Admixer requires assets
+  // as separate files, so a data: URI sprite is not an option there; elsewhere
+  // embedding costs ~33% in base64 and buys a creative that a partial
+  // extraction cannot reduce to a blank white box.
+  const inlineSprite = platform.forcePackaging
+    ? platform.forcePackaging === 'inline'
+    : o.inlineSprite;
+
+  const zipEntries = inlineSprite
+    ? [{ name: entryFile, data: textBytes(htmlInline) }]
+    : [{ name: entryFile, data: textBytes(htmlExternal) },
        { name: spriteFile, data: await blobBytes(spriteBlob) }];
-  zipEntries.push({ name: 'README.txt', data: textBytes(buildManifest({ ...shared, inlineSprite: o.inlineSprite })) });
+
+  // A .txt is not in Admixer's allowed file types and would also eat into a
+  // 300 KB budget, so the manifest only ships where it is welcome.
+  if (platform.allowReadme) {
+    zipEntries.push({ name: 'README.txt', data: textBytes(buildManifest({ ...shared, inlineSprite })) });
+  }
   const zipBlob = createZip(zipEntries);
 
   setProgress(null);
   return {
-    ...shared, options: o, spriteBlob, backupBlob, zipBlob,
+    ...shared, options: o, inlineSprite, zipFiles: zipEntries.length,
+    spriteBlob, backupBlob, zipBlob,
     htmlExternal, htmlInline, base,
     sizes: {
       sprite: spriteBlob.size,
+      entry: new Blob([inlineSprite ? htmlInline : htmlExternal]).size,
       html: new Blob([htmlInline]).size,
       zip: zipBlob.size,
       memory: sheet.sheetW * sheet.sheetH * 4,
@@ -333,7 +377,7 @@ function showResult(result) {
   $('r-sheet').textContent = `${result.sheetW}×${result.sheetH} · ${result.cols}×${Math.ceil(result.frames / result.cols)}`
     + (result.scale === 1 ? '' : ` · ${Math.round(result.scale * 100)}%`);
   $('r-sprite').textContent = kb(result.sizes.sprite);
-  $('r-html').textContent = kb(result.sizes.html);
+  $('r-entry').textContent = `${result.entryFile} · ${kb(result.sizes.entry)}`;
   $('r-zip').textContent = kb(result.sizes.zip);
   $('r-mem').textContent = `${(result.sizes.memory / 1048576).toFixed(1)} МБ`;
 
@@ -345,6 +389,13 @@ function showResult(result) {
 
   renderChecks(result, zipKb, memoryHeavy);
 
+  const platformLabel = (PLATFORMS[result.options.platform] || PLATFORMS.any).label;
+  $('dl-zip').textContent = result.options.platform === 'any' ? '⤓ ZIP-пакет' : `⤓ ZIP для ${platformLabel}`;
+  // The embedded-sprite build is not a deliverable where the platform demands
+  // separate assets, but it is still the easiest thing to open and eyeball.
+  $('dl-html').textContent = result.inlineSprite
+    ? `⤓ Один файл ${result.entryFile}`
+    : '⤓ Один файл для перегляду';
   $('dl-backup').textContent = `⤓ Backup .${result.backupFile.split('.').pop()}`;
   el.codeOut.textContent = result.htmlExternal;
   renderPreview();
@@ -362,6 +413,15 @@ function renderChecks(result, zipKb, memoryHeavy) {
   const animation = (result.frames / result.fps) * (result.loops || 1);
   const items = [];
 
+  items.push(['ok', `Точка входу — ${result.entryFile} у корені архіву.`]);
+
+  if (platform.forcePackaging === 'assets') {
+    items.push([result.inlineSprite ? 'bad' : 'ok',
+      result.inlineSprite
+        ? `${platform.label} вимагає ассети окремими файлами — спрайт у data: URI не підійде.`
+        : `Спрайт ${result.spriteFile} лежить окремим файлом, як вимагає ${platform.label}.`]);
+  }
+
   if (platform.formats.length && !platform.formats.includes(mime)) {
     const allowed = platform.formats.map((m) => m.split('/')[1].toUpperCase()).join(' / ');
     items.push(['bad', `${ext} не входить у перелік дозволених типів ${platform.label} — креатив відхилять на завантаженні. Переключіть формат спрайта на ${allowed}.`]);
@@ -376,7 +436,7 @@ function renderChecks(result, zipKb, memoryHeavy) {
   }
 
   if (platform.maxFiles) {
-    const count = zipFileCount(result);
+    const count = result.zipFiles;
     items.push(['ok', `${count} ${plural(count, 'файл', 'файли', 'файлів')} в архіві — ліміт ${platform.label}: ${platform.maxFiles}.`]);
   }
 
@@ -419,7 +479,7 @@ function budgetOf(platform, result) {
   return chosen ? Math.min(chosen, platform.budget) : platform.budget;
 }
 
-const zipFileCount = (result) => (result.options.inlineSprite ? 2 : 3); // README.txt always rides along
+
 
 function renderPreview() {
   if (!state.result) return;
@@ -634,6 +694,20 @@ function applyPlatform({ resetBudget = true } = {}) {
     el.platformNote.textContent = `${platform.note} Поточний формат спрайта не підійде.`;
   }
 
+  if (platform.forcePackaging) {
+    el.packaging.value = platform.forcePackaging;
+    el.packaging.disabled = true;
+    el.packaging.title = `${platform.label} диктує пакування`;
+  } else {
+    el.packaging.disabled = false;
+    el.packaging.title = '';
+  }
+
+  // The clickthrough is only ever "in code" where an API takes it as an
+  // argument; for clickTag platforms the URL is always written into the file.
+  const clickInCodeRow = el.clickInCode.closest('label');
+  clickInCodeRow.classList.toggle('hidden', platform.api !== 'admixer');
+
   if (resetBudget && platform.budget) {
     const option = [...el.budget.options].find((o) => Number(o.value) === platform.budget);
     if (option) el.budget.value = option.value;
@@ -642,6 +716,7 @@ function applyPlatform({ resetBudget = true } = {}) {
 }
 
 el.platform.addEventListener('change', () => applyPlatform());
+el.clickInCode.addEventListener('change', () => { if (state.result) estimate(); });
 el.packaging.addEventListener('change', () => {
   el.convert.textContent = 'Конвертувати';
   estimate();
@@ -680,7 +755,10 @@ el.stage.classList.add('checker');
 applyPlatform();
 
 $('dl-zip').addEventListener('click', () => state.result && download(state.result.zipBlob, `${state.result.base}-${state.result.width}x${state.result.height}.zip`));
-$('dl-html').addEventListener('click', () => state.result && download(new Blob([state.result.htmlInline], { type: 'text/html' }), 'index.html'));
+$('dl-html').addEventListener('click', () => state.result && download(
+  new Blob([state.result.htmlInline], { type: 'text/html' }),
+  state.result.inlineSprite ? state.result.entryFile : `${state.result.base}-preview.html`
+));
 $('dl-sprite').addEventListener('click', () => state.result && download(state.result.spriteBlob, state.result.spriteFile));
 $('dl-backup').addEventListener('click', () => state.result && download(state.result.backupBlob, state.result.backupFile));
 

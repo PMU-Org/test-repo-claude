@@ -199,10 +199,7 @@ if (payload.api === 'admixer') {
   if (payload.inlineSprite) problems.push('Admixer requires the sprite as a separate file');
 
   const image = payload.assetMode === 'frames' ? payload.frameFiles[0] : 'images/sprite.jpg';
-  const expected = [
-    'body.html', 'js/banner.js', 'js/body.js', image,
-    'index/index.html', 'index/settings.js', 'index/css/index.css',
-  ];
+  const expected = ['body.html', 'js/banner.js', 'js/body.js', image, 'index/index.html'];
   if (payload.assetMode === 'frames') {
     if (payload.frameFiles.length !== payload.frames) {
       problems.push(`${payload.frameFiles.length} frame files for ${payload.frames} frames`);
@@ -294,6 +291,38 @@ if (payload.assetMode === 'frames') {
   if (!shown.firstVisible || !shown.firstComplete) problems.push('first frame does not render without JavaScript');
   if (!shown.othersHidden) problems.push('frames other than the first are visible at rest');
   await noJs.close();
+}
+
+{
+  const preview = await browser.newPage({ viewport: { width: 460, height: 820 } });
+  const previewProblems = [];
+  preview.on('pageerror', (e) => previewProblems.push('pageerror: ' + e.message));
+  preview.on('requestfailed', (r) => previewProblems.push('requestfailed: ' + r.url().split('/').pop()));
+  await preview.goto(pathToFileURL(join(OUT, 'index', 'index.html')).href);
+  await preview.waitForSelector(STAGE);
+  await preview.waitForTimeout(500);
+  const shown = await preview.evaluate(() => {
+    const img = document.querySelector('#animation_container img, #frame');
+    const box = document.getElementById('animation_container') || document.getElementById('container');
+    const rect = box.getBoundingClientRect();
+    return {
+      loaded: img.tagName === 'IMG' ? img.complete && img.naturalWidth > 0 : true,
+      width: Math.round(rect.width), height: Math.round(rect.height),
+      externalCss: document.querySelectorAll('link[rel="stylesheet"]').length,
+      iframes: document.querySelectorAll('iframe').length,
+    };
+  });
+  const moved = new Set();
+  for (let i = 0; i < 4; i++) { moved.add(await preview.evaluate(FRAME_PROBE)); await preview.waitForTimeout(160); }
+  console.log('index/index.html over file://:', { ...shown, animates: moved.size > 2 });
+  if (previewProblems.length) problems.push(`preview page: ${previewProblems.join('; ')}`);
+  if (!shown.loaded) problems.push('preview page does not render the creative');
+  if (shown.width !== payload.width || shown.height !== payload.height) {
+    problems.push(`preview page renders at ${shown.width}x${shown.height}`);
+  }
+  if (shown.externalCss || shown.iframes) problems.push('preview page still depends on a stylesheet or an iframe');
+  if (moved.size < 3) problems.push('preview page does not animate');
+  await preview.close();
 }
 
 // And the separate-sprite build must explain itself rather than go white.

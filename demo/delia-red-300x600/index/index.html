@@ -1,22 +1,92 @@
-<!DOCTYPE html>
-<html>
-<head lang="en">
-  <meta charset="UTF-8">
-  <link href="css/index.css" media="all" rel="stylesheet" type="text/css"/>
-  <title>delia-red-300x600 300x600</title>
-  <script type="text/javascript" src="settings.js"></script>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ad.size" content="width=300,height=600">
+<title>delia-red-300x600 — 300x600</title>
+<style>
+html, body { margin: 0 0 0 0; }
+#container { position:absolute; left:0; top:0; width:300px; height:600px; overflow:hidden; box-sizing:border-box; cursor:pointer; text-decoration:none; background-color:#ffffff; border:1px solid #d9d9d9; }
+</style>
 </head>
 <body>
-<div class="page">
-  <p class="ttl">delia-red-300x600 — 300x600</p>
-  <div class="wrapper-table" style="width: 300px; height: 600px;">
-    <iframe id="banner" src="../body.html" width="300" height="600" frameborder="0" scrolling="no"></iframe>
-  </div>
-  <p class="note">
-    Локальний перегляд креатива. Щоб подивитись його так, як віддає сервер
-    Admixer, скопіюйте файли банера в <code>banners/banner/body/</code> і
-    відкрийте цю сторінку через localhost із штатним шаблоном Admixer.
-  </p>
-</div>
+<a id="container" href="https://example.com/delia" target="_blank" rel="noopener noreferrer" aria-label="delia-red-300x600"><div id="animation_container" style="position:absolute;left:0;top:0;width:300px;height:600px;overflow:hidden;">
+<img src="../images/frame-01.jpg" width="300" height="600" alt="delia-red-300x600" style="position:absolute;left:0;top:0;width:300px;height:600px;border:0;">
+      <img src="../images/frame-02.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-03.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-04.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-05.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-06.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-07.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-08.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-09.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-10.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-11.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-12.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-13.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-14.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-15.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-16.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-17.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-18.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-19.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="../images/frame-20.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+</div></a>
+<script>
+var clickTag = "https://example.com/delia";
+(function () {
+  var FRAMES = 20, FPS = 10, LOOPS = 3;
+  var box = document.getElementById('animation_container');
+  var imgs = box.getElementsByTagName('img');
+  var cur = 0, idx = 0, loops = 0, acc = 0, prev = 0, raf = 0, step = 1000 / FPS;
+
+  function show(i) {
+    if (i === cur || !imgs[i]) { return; }
+    imgs[cur].style.display = 'none';
+    imgs[i].style.display = 'block';
+    cur = i;
+  }
+
+  function tick(now) {
+    if (!prev) prev = now;
+    acc += now - prev;
+    prev = now;
+    if (acc > step * 5) acc = step; // a backgrounded tab must not fast-forward
+    while (acc >= step) {
+      acc -= step;
+      if (idx + 1 >= FRAMES) {
+        loops++;
+        if (LOOPS && loops >= LOOPS) { show(FRAMES - 1); raf = 0; return; }
+        idx = 0;
+      } else {
+        idx++;
+      }
+    }
+    show(idx);
+    raf = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (FRAMES > 1) { raf = requestAnimationFrame(tick); }
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; prev = 0; }
+    else if (!raf && !(LOOPS && loops >= LOOPS)) { raf = requestAnimationFrame(tick); }
+  });
+
+  start();
+})();
+(function () {
+  var ad = document.getElementById('container');
+  ad.href = window.clickTag || '#';
+  ad.addEventListener('click', function (e) {
+    e.preventDefault();
+    window.open(window.clickTag, '_blank');
+  });
+})();
+</script>
+<p style="position:absolute;left:0;top:600px;margin:12px 0 0;max-width:62ch;font:12px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;color:#666;">Сторінка перегляду. Сам банер — <b>body.html</b> у корені архіву; ця тека потрібна лише для локального показу і не є частиною креатива.</p>
 </body>
 </html>

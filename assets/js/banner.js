@@ -346,9 +346,17 @@ ${styles}
 }
 
 function standardPackage(cfg) {
-  const { width, height, name, clickUrl, entryFile } = cfg;
+  const { width, height, name, clickUrl, entryFile, assetMode } = cfg;
+  const frameMode = assetMode === 'frames';
   const styles = buildStyles(cfg, 'container');
-  const player = buildPlayer(cfg, { exposeStart: false });
+  const player = frameMode
+    ? buildFramePlayer(cfg, { exposeStart: false })
+    : buildPlayer(cfg, { exposeStart: false });
+  const stage = frameMode
+    ? `<div id="animation_container" style="position:absolute;left:0;top:0;width:${width}px;height:${height}px;overflow:hidden;">
+${buildFrameMarkup(cfg)}
+</div>`
+    : '<div id="frame"></div>';
 
   const html = `<!doctype html>
 <html lang="en">
@@ -362,7 +370,7 @@ ${styles}
 </style>
 </head>
 <body>
-<a id="container" href="${escapeAttr(clickUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttr(name)}"><div id="frame"></div></a>
+<a id="container" href="${escapeAttr(clickUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttr(name)}">${stage}</a>
 <script>
 var clickTag = ${jsString(clickUrl)};
 ${player}

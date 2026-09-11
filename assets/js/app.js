@@ -377,9 +377,19 @@ async function convert(options) {
   // template when they supplied one, since its rig holds ids no documentation
   // exposes; otherwise a fallback that occupies the same paths.
   if (platform.harness && !inlineSprite) {
+    // The preview page renders the creative itself, so it needs the same
+    // assets addressed one level up and no platform API to wait for.
+    const preview = buildCreative({
+      ...shared,
+      api: 'standard',
+      frameFiles: frameFiles.map((file) => `../${file}`),
+      spriteUrl: `../${spriteFile}`,
+      inlineSprite: false,
+      inlineAll: true,
+    });
     const harness = state.template
       ? carryOver(state.template.entries, isJunk)
-      : buildFallbackHarness({ width: o.width, height: o.height, entryFile, name: base });
+      : buildFallbackHarness({ entryFile, creativeHtml: preview.html, height: o.height });
     for (const file of harness) {
       zipEntries.push(file.isDir
         ? { name: file.name, data: new Uint8Array(0), isDir: true }

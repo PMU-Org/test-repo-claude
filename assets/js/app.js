@@ -1,5 +1,5 @@
 import { loadVideo, probeFrameRate, captureFrames } from './extract.js';
-import { packSheet, encode, blobToDataURL, extensionFor, planGrid } from './sprite.js';
+import { packSheet, encode, encodeFrames, blobToDataURL, extensionFor, planGrid } from './sprite.js';
 import { createZip, blobBytes, textBytes } from './zip.js';
 import { readZip, isJunk } from './unzip.js';
 import { buildFallbackHarness, carryOver } from './harness.js';
@@ -40,6 +40,7 @@ const PLATFORMS = {
     entryFile: 'body.html',
     assetDir: 'images',
     harness: true,
+    assetMode: 'frames',
     formats: ['image/jpeg', 'image/png'],
     budget: 300, maxFiles: null, maxAnimation: null,
     forcePackaging: 'assets', allowReadme: false,
@@ -97,6 +98,7 @@ const el = {
   preset: $('opt-preset'), w: $('opt-w'), h: $('opt-h'), ratio: $('opt-ratio'),
   fps: $('opt-fps'), start: $('opt-start'), end: $('opt-end'), loops: $('opt-loops'),
   format: $('opt-format'), quality: $('opt-quality'), qOut: $('q-out'), scale: $('opt-scale'),
+  assetMode: $('opt-asset-mode'),
   transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
   click: $('opt-click'), packaging: $('opt-packaging'), clickInCode: $('opt-click-in-code'),
   template: $('opt-template'), templateNote: $('template-note'), wrapTemplate: $('wrap-template'),
@@ -266,6 +268,7 @@ function currentOptions() {
     mime: el.format.value,
     quality: Number(el.quality.value),
     scale: Number(el.scale.value) || 1,
+    assetMode: el.assetMode.value,
     background: transparent ? null : el.bg.value,
     clickUrl: el.click.value.trim() || 'https://example.com/',
     border: el.border.checked,
@@ -309,18 +312,25 @@ async function convert(options) {
     setProgress(fraction * 0.7, `Кадр ${done}/${total}`);
   });
 
-  setProgress(0.75, 'Пакую спрайт…');
-  const sheet = packSheet(canvases, spriteW, spriteH, o.background);
+  const frameMode = o.assetMode === 'frames';
 
-  setProgress(0.85, 'Кодую зображення…');
-  const spriteBlob = await encode(sheet.canvas, o.mime, o.quality);
+  setProgress(0.78, 'Кодую зображення…');
+  const sheet = frameMode
+    ? { canvas: null, cols: canvases.length, rows: 1, sheetW: spriteW, sheetH: spriteH }
+    : packSheet(canvases, spriteW, spriteH, o.background);
+  const frameBlobs = frameMode ? await encodeFrames(canvases, o.mime, o.quality) : [];
+  const spriteBlob = frameMode
+    ? new Blob(frameBlobs, { type: o.mime })
+    : await encode(sheet.canvas, o.mime, o.quality);
   const backupIndex = clamp(Number(el.backup.value) - 1, 0, canvases.length - 1);
   const backupBlob = await encode(canvases[backupIndex], o.background ? 'image/jpeg' : 'image/png', 92);
 
   setProgress(0.95, 'Збираю пакет…');
   const ext = extensionFor(o.mime);
   const base = slug(state.file.name);
-  const spriteFile = platform.assetDir ? `${platform.assetDir}/sprite.${ext}` : `sprite.${ext}`;
+  const assetDir = platform.assetDir ? `${platform.assetDir}/` : '';
+  const spriteFile = `${assetDir}sprite.${ext}`;
+  const frameFiles = frameBlobs.map((_, i) => `${assetDir}frame-${String(i + 1).padStart(2, '0')}.${ext}`);
   const backupFile = `backup.${o.background ? 'jpg' : 'png'}`;
   const entryFile = platform.entryFile;
 
@@ -330,14 +340,18 @@ async function convert(options) {
     frames: canvases.length, cols: sheet.cols, fps: o.fps, loops: o.loops,
     sheetW: sheet.sheetW, sheetH: sheet.sheetH, scale: o.scale,
     clickUrl: o.clickUrl, border: o.border, borderColor: o.borderColor, background: o.background,
-    spriteFile, backupFile, entryFile,
+    spriteFile, frameFiles, assetMode: o.assetMode, backupFile, entryFile,
     api: platform.api, clickInCode: o.clickInCode,
     platformLabel: platform.label,
   };
 
-  const spriteDataUrl = await blobToDataURL(spriteBlob);
   const external = buildCreative({ ...shared, spriteUrl: spriteFile, inlineSprite: false, inlineAll: false });
-  const inline = buildCreative({ ...shared, spriteUrl: spriteDataUrl, inlineSprite: true, inlineAll: true });
+  const inlineSheet = frameMode ? packSheet(canvases, spriteW, spriteH, o.background) : sheet;
+  const inlineBlob = frameMode ? await encode(inlineSheet.canvas, o.mime, o.quality) : spriteBlob;
+  const inline = buildCreative({
+    ...shared, assetMode: 'sprite', cols: inlineSheet.cols,
+    spriteUrl: await blobToDataURL(inlineBlob), inlineSprite: true, inlineAll: true,
+  });
 
   // Packaging is the platform's call where it has one. Admixer requires assets
   // as separate files, so a data: URI sprite is not an option there; elsewhere
@@ -347,12 +361,16 @@ async function convert(options) {
     ? platform.forcePackaging === 'inline'
     : o.inlineSprite;
 
+  const imageEntries = frameMode
+    ? await Promise.all(frameBlobs.map(async (blob, i) => ({ name: frameFiles[i], data: await blobBytes(blob) })))
+    : [{ name: spriteFile, data: await blobBytes(spriteBlob) }];
+
   const zipEntries = inlineSprite
     ? [{ name: entryFile, data: textBytes(inline.html) }]
     : [
       { name: entryFile, data: textBytes(external.html) },
       ...external.files.map((file) => ({ name: file.name, data: textBytes(file.text) })),
-      { name: spriteFile, data: await blobBytes(spriteBlob) },
+      ...imageEntries,
     ];
 
   // The preview folder Admixer packages carry: taken from the user's own
@@ -397,8 +415,10 @@ function showResult(result) {
   el.result.classList.remove('hidden');
 
   $('r-frames').textContent = `${result.frames} @ ${result.fps} fps (${(result.frames / result.fps).toFixed(2)} с)`;
-  $('r-sheet').textContent = `${result.sheetW}×${result.sheetH} · ${result.cols}×${Math.ceil(result.frames / result.cols)}`
-    + (result.scale === 1 ? '' : ` · ${Math.round(result.scale * 100)}%`);
+  $('r-sheet').textContent = result.assetMode === 'frames'
+    ? `${result.frames} × ${result.sheetW}×${result.sheetH} JPG`
+    : `${result.sheetW}×${result.sheetH} · ${result.cols}×${Math.ceil(result.frames / result.cols)}`
+      + (result.scale === 1 ? '' : ` · ${Math.round(result.scale * 100)}%`);
   $('r-sprite').textContent = kb(result.sizes.sprite);
   $('r-entry').textContent = `${result.entryFile} · ${kb(result.sizes.entry)}`;
   $('r-zip').textContent = kb(result.sizes.zip);
@@ -413,7 +433,12 @@ function showResult(result) {
   renderChecks(result, zipKb, memoryHeavy);
 
   const platformLabel = (PLATFORMS[result.options.platform] || PLATFORMS.any).label;
-  $('dl-zip').textContent = result.options.platform === 'any' ? '⤓ ZIP-пакет' : `⤓ ZIP для ${platformLabel}`;
+  const limit = budgetOf(PLATFORMS[result.options.platform] || PLATFORMS.any, result);
+  const over = limit && result.sizes.zip / 1024 > limit;
+  $('dl-zip').textContent = over
+    ? `⚠ ZIP ${kb(result.sizes.zip)} — понад ліміт ${limit} КБ`
+    : result.options.platform === 'any' ? '⤓ ZIP-пакет' : `⤓ ZIP для ${platformLabel}`;
+  $('dl-zip').classList.toggle('danger', Boolean(over));
   // The embedded-sprite build is not a deliverable where the platform demands
   // separate assets, but it is still the easiest thing to open and eyeball.
   $('dl-html').textContent = result.inlineSprite
@@ -441,8 +466,15 @@ function renderChecks(result, zipKb, memoryHeavy) {
   if (platform.forcePackaging === 'assets') {
     items.push([result.inlineSprite ? 'bad' : 'ok',
       result.inlineSprite
-        ? `${platform.label} вимагає ассети окремими файлами — спрайт у data: URI не підійде.`
-        : `Спрайт ${result.spriteFile} лежить окремим файлом, як вимагає ${platform.label}.`]);
+        ? `${platform.label} вимагає ассети окремими файлами — зображення в data: URI не підійде.`
+        : result.assetMode === 'frames'
+          ? `${result.frames} кадрів окремими JPG у ${result.frameFiles[0].split('/')[0]}/, як у шаблонах ${platform.label}.`
+          : `Спрайт ${result.spriteFile} лежить окремим файлом, як вимагає ${platform.label}.`]);
+  }
+
+  if (result.assetMode === 'sprite' && platform.api === 'admixer') {
+    items.push(['warn', 'Спрайт-аркуш ховає єдине посилання на зображення в CSS url() і залежить від того, '
+      + 'що майданчик не чіпатиме геометрію картинки. Шаблони платформи возять покадрові JPG — надійніше.']);
   }
 
   if (platform.formats.length && !platform.formats.includes(mime)) {
@@ -714,6 +746,8 @@ function applyPlatform({ resetBudget = true } = {}) {
   if (disallowed) {
     el.platformNote.textContent = `${platform.note} Поточний формат спрайта не підійде.`;
   }
+
+  if (resetBudget && platform.assetMode) el.assetMode.value = platform.assetMode;
 
   if (platform.forcePackaging) {
     el.packaging.value = platform.forcePackaging;

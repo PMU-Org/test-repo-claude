@@ -43,6 +43,21 @@ export function packSheet(canvases, frameW, frameH, background) {
   return { canvas: sheet, cols, rows, sheetW, sheetH };
 }
 
+/**
+ * Each frame as its own file.
+ *
+ * A sheet is smaller, but it hides its only asset reference inside a CSS
+ * url(), and it is one image whose geometry every frame depends on — an ad
+ * server that rewrites or recompresses assets breaks the whole animation.
+ * Separate frames referenced by <img src> survive that, which is how the
+ * creatives these platforms actually serve are built.
+ */
+export async function encodeFrames(canvases, mime, quality) {
+  const blobs = [];
+  for (const canvas of canvases) blobs.push(await encode(canvas, mime, quality));
+  return blobs;
+}
+
 export function encode(canvas, mime, quality) {
   return new Promise((resolve, reject) => {
     canvas.toBlob(

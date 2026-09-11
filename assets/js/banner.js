@@ -27,6 +27,54 @@ const jsString = (value) => JSON.stringify(String(value));
 
 /* ── player ───────────────────────────────────────────────────────────── */
 
+function buildFramePlayer(cfg, { exposeStart }) {
+  const { frames, fps, loops } = cfg;
+  const tail = exposeStart ? '  window.startBanner = start;\n' : '  start();\n';
+
+  return `(function () {
+  var FRAMES = ${frames}, FPS = ${fps}, LOOPS = ${loops};
+  var box = document.getElementById('animation_container');
+  var imgs = box.getElementsByTagName('img');
+  var cur = 0, idx = 0, loops = 0, acc = 0, prev = 0, raf = 0, step = 1000 / FPS;
+
+  function show(i) {
+    if (i === cur || !imgs[i]) { return; }
+    imgs[cur].style.display = 'none';
+    imgs[i].style.display = 'block';
+    cur = i;
+  }
+
+  function tick(now) {
+    if (!prev) prev = now;
+    acc += now - prev;
+    prev = now;
+    if (acc > step * 5) acc = step; // a backgrounded tab must not fast-forward
+    while (acc >= step) {
+      acc -= step;
+      if (idx + 1 >= FRAMES) {
+        loops++;
+        if (LOOPS && loops >= LOOPS) { show(FRAMES - 1); raf = 0; return; }
+        idx = 0;
+      } else {
+        idx++;
+      }
+    }
+    show(idx);
+    raf = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (FRAMES > 1) { raf = requestAnimationFrame(tick); }
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; prev = 0; }
+    else if (!raf && !(LOOPS && loops >= LOOPS)) { raf = requestAnimationFrame(tick); }
+  });
+
+${tail}})();`;
+}
+
 function buildPlayer(cfg, { exposeStart }) {
   const { frames, cols, width, height, fps, loops, spriteFile, entryFile, inlineSprite } = cfg;
 
@@ -36,10 +84,7 @@ function buildPlayer(cfg, { exposeStart }) {
     cancelAnimationFrame(raf);
     raf = 0;
     if (window.console) { console.error('${spriteFile} failed to load next to ${entryFile}'); }
-    var host = location.hostname;
-    var local = location.protocol === 'file:' || host === '' || host === 'localhost'
-      || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-    if (!local) { return; }
+    if (location.protocol !== 'file:') { return; }
     el.style.background = '#fff';
     el.style.cssText += ';display:flex;align-items:center;justify-content:center;padding:18px;'
       + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
@@ -131,19 +176,24 @@ function buildAdmixerGlue(cfg) {
  */
 function buildAssetCheck(entryFile) {
   return `(function () {
-  var host = location.hostname;
-  var local = location.protocol === 'file:' || host === '' || host === 'localhost'
-    || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-  if (!local) { return; }
+  if (location.protocol !== 'file:') { return; }
   window.addEventListener('load', function () {
-    if (window.startBanner) { return; }
-    var el = document.getElementById('frame');
-    if (!el) { return; }
-    el.style.cssText += ';background:#fff;display:flex;align-items:center;justify-content:center;'
-      + 'padding:18px;font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
-    el.textContent = 'Не завантажились js/banner.js та js/body.js поруч з ${entryFile}. '
-      + 'Розпакуйте архів повністю, зі збереженням теки js/ та images/. '
-      + '(Sibling scripts missing: extract the whole archive, keeping its folders.)';
+    var box = document.getElementById('animation_container');
+    if (!box) { return; }
+    var img = box.getElementsByTagName('img')[0];
+    var frame = document.getElementById('frame');
+    // Something renders — a static first frame is a degraded banner, not a
+    // broken one — so only speak up when the box is truly empty.
+    if (img && img.naturalWidth > 0) { return; }
+    if (frame && window.startBanner) { return; }
+    var note = document.createElement('div');
+    note.style.cssText = 'position:absolute;left:0;top:0;right:0;bottom:0;background:#fff;display:flex;'
+      + 'align-items:center;justify-content:center;padding:18px;color:#c1121f;text-align:center;'
+      + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;';
+    note.textContent = 'Файли банера не завантажились поруч з ${entryFile}. '
+      + 'Розпакуйте архів повністю, зі збереженням тек js/ та images/. '
+      + '(Assets missing: extract the whole archive, keeping its folders.)';
+    box.appendChild(note);
   });
 })();`;
 }
@@ -171,6 +221,18 @@ function buildPreviewShim(clickUrl) {
 
 /* ── styles ───────────────────────────────────────────────────────────── */
 
+/** Every frame stacked; the first one is visible without any script running. */
+function buildFrameMarkup(cfg) {
+  const { frames, width, height, frameFiles, name } = cfg;
+  const tags = [];
+  for (let i = 0; i < frames; i++) {
+    const hidden = i === 0 ? '' : 'display:none;';
+    tags.push(`<img src="${frameFiles[i]}" width="${width}" height="${height}" alt="${i === 0 ? escapeAttr(name) : ''}"`
+      + ` style="position:absolute;left:0;top:0;width:${width}px;height:${height}px;${hidden}border:0;">`);
+  }
+  return tags.join('\n      ');
+}
+
 function buildStyles(cfg, rootId) {
   const { width, height, background, border, borderColor, spriteUrl, bgW, bgH, api } = cfg;
   const boxRules = [
@@ -187,6 +249,11 @@ function buildStyles(cfg, rootId) {
     ? `#container { position:absolute; left:0; top:0; width:100%; height:100%; }
 #animation_container { ${boxRules}; }`
     : `#${rootId} { ${boxRules}; }`;
+
+  if (cfg.assetMode === 'frames') {
+    return `html, body { margin: 0 0 0 0; }
+${shell}`;
+  }
 
   return `html, body { margin: 0 0 0 0; }
 ${shell}
@@ -218,9 +285,12 @@ export function buildCreative(cfg) {
 }
 
 function admixerPackage(cfg) {
-  const { width, height, name, entryFile, inlineAll } = cfg;
+  const { width, height, name, entryFile, inlineAll, assetMode } = cfg;
+  const frameMode = assetMode === 'frames';
   const styles = buildStyles(cfg, 'container');
-  const player = buildPlayer(cfg, { exposeStart: true });
+  const player = frameMode
+    ? buildFramePlayer(cfg, { exposeStart: true })
+    : buildPlayer(cfg, { exposeStart: true });
   const glue = buildAdmixerGlue(cfg);
   const shim = buildPreviewShim(cfg.clickUrl);
 
@@ -256,7 +326,9 @@ ${buildAssetCheck(cfg.entryFile)}
 ${styles}
   </style>
   <div id="container">
-    <div id="animation_container"><div id="frame"></div></div>
+    <div id="animation_container">${frameMode ? `
+      ${buildFrameMarkup(cfg)}
+    ` : '<div id="frame"></div>'}</div>
   </div>
   ${scripts}
 </body>

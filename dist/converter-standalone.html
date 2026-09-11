@@ -155,6 +155,8 @@ input[type="file"]::file-selector-button {
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
 .btn.primary:hover:not(:disabled) { background: #f04039; border-color: #f04039; }
 .btn.ghost { background: transparent; }
+.btn.primary.danger { background: var(--warn); border-color: var(--warn); color: #241c05; }
+.btn.primary.danger:hover:not(:disabled) { background: #f0bf4a; border-color: #f0bf4a; }
 .btn.tiny { padding: 4px 9px; font-size: 12px; }
 
 .actions { margin-top: 18px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
@@ -314,7 +316,7 @@ footer p { margin: 0; }
       </fieldset>
 
       <fieldset>
-        <legend>Спрайт</legend>
+        <legend>Зображення</legend>
         <label>Формат
           <select id="opt-format">
             <option value="image/jpeg" selected>JPEG — без альфи</option>
@@ -324,6 +326,12 @@ footer p { margin: 0; }
         </label>
         <label>Якість <output id="q-out">80</output>
           <input type="range" id="opt-quality" min="20" max="100" step="1" value="80">
+        </label>
+        <label>Кадри
+          <select id="opt-asset-mode">
+            <option value="frames" selected>Окремими JPG — як у шаблонах платформ</option>
+            <option value="sprite">Один спрайт-аркуш — легше, але крихкіше</option>
+          </select>
         </label>
         <label>Роздільність спрайта
           <select id="opt-scale">
@@ -644,6 +652,21 @@ function packSheet(canvases, frameW, frameH, background) {
 
   return { canvas: sheet, cols, rows, sheetW, sheetH };
 }
+
+/**
+ * Each frame as its own file.
+ *
+ * A sheet is smaller, but it hides its only asset reference inside a CSS
+ * url(), and it is one image whose geometry every frame depends on — an ad
+ * server that rewrites or recompresses assets breaks the whole animation.
+ * Separate frames referenced by <img src> survive that, which is how the
+ * creatives these platforms actually serve are built.
+ */
+async function encodeFrames(canvases, mime, quality) {
+  const blobs = [];
+  for (const canvas of canvases) blobs.push(await encode(canvas, mime, quality));
+  return blobs;
+}
 function encode(canvas, mime, quality) {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
@@ -819,6 +842,54 @@ const jsString = (value) => JSON.stringify(String(value));
 
 /* ── player ───────────────────────────────────────────────────────────── */
 
+function buildFramePlayer(cfg, { exposeStart }) {
+  const { frames, fps, loops } = cfg;
+  const tail = exposeStart ? '  window.startBanner = start;\n' : '  start();\n';
+
+  return `(function () {
+  var FRAMES = ${frames}, FPS = ${fps}, LOOPS = ${loops};
+  var box = document.getElementById('animation_container');
+  var imgs = box.getElementsByTagName('img');
+  var cur = 0, idx = 0, loops = 0, acc = 0, prev = 0, raf = 0, step = 1000 / FPS;
+
+  function show(i) {
+    if (i === cur || !imgs[i]) { return; }
+    imgs[cur].style.display = 'none';
+    imgs[i].style.display = 'block';
+    cur = i;
+  }
+
+  function tick(now) {
+    if (!prev) prev = now;
+    acc += now - prev;
+    prev = now;
+    if (acc > step * 5) acc = step; // a backgrounded tab must not fast-forward
+    while (acc >= step) {
+      acc -= step;
+      if (idx + 1 >= FRAMES) {
+        loops++;
+        if (LOOPS && loops >= LOOPS) { show(FRAMES - 1); raf = 0; return; }
+        idx = 0;
+      } else {
+        idx++;
+      }
+    }
+    show(idx);
+    raf = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (FRAMES > 1) { raf = requestAnimationFrame(tick); }
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; prev = 0; }
+    else if (!raf && !(LOOPS && loops >= LOOPS)) { raf = requestAnimationFrame(tick); }
+  });
+
+${tail}})();`;
+}
+
 function buildPlayer(cfg, { exposeStart }) {
   const { frames, cols, width, height, fps, loops, spriteFile, entryFile, inlineSprite } = cfg;
 
@@ -828,10 +899,7 @@ function buildPlayer(cfg, { exposeStart }) {
     cancelAnimationFrame(raf);
     raf = 0;
     if (window.console) { console.error('${spriteFile} failed to load next to ${entryFile}'); }
-    var host = location.hostname;
-    var local = location.protocol === 'file:' || host === '' || host === 'localhost'
-      || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-    if (!local) { return; }
+    if (location.protocol !== 'file:') { return; }
     el.style.background = '#fff';
     el.style.cssText += ';display:flex;align-items:center;justify-content:center;padding:18px;'
       + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
@@ -923,19 +991,24 @@ function buildAdmixerGlue(cfg) {
  */
 function buildAssetCheck(entryFile) {
   return `(function () {
-  var host = location.hostname;
-  var local = location.protocol === 'file:' || host === '' || host === 'localhost'
-    || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-  if (!local) { return; }
+  if (location.protocol !== 'file:') { return; }
   window.addEventListener('load', function () {
-    if (window.startBanner) { return; }
-    var el = document.getElementById('frame');
-    if (!el) { return; }
-    el.style.cssText += ';background:#fff;display:flex;align-items:center;justify-content:center;'
-      + 'padding:18px;font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
-    el.textContent = 'Не завантажились js/banner.js та js/body.js поруч з ${entryFile}. '
-      + 'Розпакуйте архів повністю, зі збереженням теки js/ та images/. '
-      + '(Sibling scripts missing: extract the whole archive, keeping its folders.)';
+    var box = document.getElementById('animation_container');
+    if (!box) { return; }
+    var img = box.getElementsByTagName('img')[0];
+    var frame = document.getElementById('frame');
+    // Something renders — a static first frame is a degraded banner, not a
+    // broken one — so only speak up when the box is truly empty.
+    if (img && img.naturalWidth > 0) { return; }
+    if (frame && window.startBanner) { return; }
+    var note = document.createElement('div');
+    note.style.cssText = 'position:absolute;left:0;top:0;right:0;bottom:0;background:#fff;display:flex;'
+      + 'align-items:center;justify-content:center;padding:18px;color:#c1121f;text-align:center;'
+      + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;';
+    note.textContent = 'Файли банера не завантажились поруч з ${entryFile}. '
+      + 'Розпакуйте архів повністю, зі збереженням тек js/ та images/. '
+      + '(Assets missing: extract the whole archive, keeping its folders.)';
+    box.appendChild(note);
   });
 })();`;
 }
@@ -963,6 +1036,18 @@ function buildPreviewShim(clickUrl) {
 
 /* ── styles ───────────────────────────────────────────────────────────── */
 
+/** Every frame stacked; the first one is visible without any script running. */
+function buildFrameMarkup(cfg) {
+  const { frames, width, height, frameFiles, name } = cfg;
+  const tags = [];
+  for (let i = 0; i < frames; i++) {
+    const hidden = i === 0 ? '' : 'display:none;';
+    tags.push(`<img src="${frameFiles[i]}" width="${width}" height="${height}" alt="${i === 0 ? escapeAttr(name) : ''}"`
+      + ` style="position:absolute;left:0;top:0;width:${width}px;height:${height}px;${hidden}border:0;">`);
+  }
+  return tags.join('\n      ');
+}
+
 function buildStyles(cfg, rootId) {
   const { width, height, background, border, borderColor, spriteUrl, bgW, bgH, api } = cfg;
   const boxRules = [
@@ -979,6 +1064,11 @@ function buildStyles(cfg, rootId) {
     ? `#container { position:absolute; left:0; top:0; width:100%; height:100%; }
 #animation_container { ${boxRules}; }`
     : `#${rootId} { ${boxRules}; }`;
+
+  if (cfg.assetMode === 'frames') {
+    return `html, body { margin: 0 0 0 0; }
+${shell}`;
+  }
 
   return `html, body { margin: 0 0 0 0; }
 ${shell}
@@ -1010,9 +1100,12 @@ function buildCreative(cfg) {
 }
 
 function admixerPackage(cfg) {
-  const { width, height, name, entryFile, inlineAll } = cfg;
+  const { width, height, name, entryFile, inlineAll, assetMode } = cfg;
+  const frameMode = assetMode === 'frames';
   const styles = buildStyles(cfg, 'container');
-  const player = buildPlayer(cfg, { exposeStart: true });
+  const player = frameMode
+    ? buildFramePlayer(cfg, { exposeStart: true })
+    : buildPlayer(cfg, { exposeStart: true });
   const glue = buildAdmixerGlue(cfg);
   const shim = buildPreviewShim(cfg.clickUrl);
 
@@ -1048,7 +1141,9 @@ ${buildAssetCheck(cfg.entryFile)}
 ${styles}
   </style>
   <div id="container">
-    <div id="animation_container"><div id="frame"></div></div>
+    <div id="animation_container">${frameMode ? `
+      ${buildFrameMarkup(cfg)}
+    ` : '<div id="frame"></div>'}</div>
   </div>
   ${scripts}
 </body>
@@ -1199,6 +1294,7 @@ const PLATFORMS = {
     entryFile: 'body.html',
     assetDir: 'images',
     harness: true,
+    assetMode: 'frames',
     formats: ['image/jpeg', 'image/png'],
     budget: 300, maxFiles: null, maxAnimation: null,
     forcePackaging: 'assets', allowReadme: false,
@@ -1256,6 +1352,7 @@ const el = {
   preset: $('opt-preset'), w: $('opt-w'), h: $('opt-h'), ratio: $('opt-ratio'),
   fps: $('opt-fps'), start: $('opt-start'), end: $('opt-end'), loops: $('opt-loops'),
   format: $('opt-format'), quality: $('opt-quality'), qOut: $('q-out'), scale: $('opt-scale'),
+  assetMode: $('opt-asset-mode'),
   transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
   click: $('opt-click'), packaging: $('opt-packaging'), clickInCode: $('opt-click-in-code'),
   template: $('opt-template'), templateNote: $('template-note'), wrapTemplate: $('wrap-template'),
@@ -1425,6 +1522,7 @@ function currentOptions() {
     mime: el.format.value,
     quality: Number(el.quality.value),
     scale: Number(el.scale.value) || 1,
+    assetMode: el.assetMode.value,
     background: transparent ? null : el.bg.value,
     clickUrl: el.click.value.trim() || 'https://example.com/',
     border: el.border.checked,
@@ -1468,18 +1566,25 @@ async function convert(options) {
     setProgress(fraction * 0.7, `Кадр ${done}/${total}`);
   });
 
-  setProgress(0.75, 'Пакую спрайт…');
-  const sheet = packSheet(canvases, spriteW, spriteH, o.background);
+  const frameMode = o.assetMode === 'frames';
 
-  setProgress(0.85, 'Кодую зображення…');
-  const spriteBlob = await encode(sheet.canvas, o.mime, o.quality);
+  setProgress(0.78, 'Кодую зображення…');
+  const sheet = frameMode
+    ? { canvas: null, cols: canvases.length, rows: 1, sheetW: spriteW, sheetH: spriteH }
+    : packSheet(canvases, spriteW, spriteH, o.background);
+  const frameBlobs = frameMode ? await encodeFrames(canvases, o.mime, o.quality) : [];
+  const spriteBlob = frameMode
+    ? new Blob(frameBlobs, { type: o.mime })
+    : await encode(sheet.canvas, o.mime, o.quality);
   const backupIndex = clamp(Number(el.backup.value) - 1, 0, canvases.length - 1);
   const backupBlob = await encode(canvases[backupIndex], o.background ? 'image/jpeg' : 'image/png', 92);
 
   setProgress(0.95, 'Збираю пакет…');
   const ext = extensionFor(o.mime);
   const base = slug(state.file.name);
-  const spriteFile = platform.assetDir ? `${platform.assetDir}/sprite.${ext}` : `sprite.${ext}`;
+  const assetDir = platform.assetDir ? `${platform.assetDir}/` : '';
+  const spriteFile = `${assetDir}sprite.${ext}`;
+  const frameFiles = frameBlobs.map((_, i) => `${assetDir}frame-${String(i + 1).padStart(2, '0')}.${ext}`);
   const backupFile = `backup.${o.background ? 'jpg' : 'png'}`;
   const entryFile = platform.entryFile;
 
@@ -1489,14 +1594,18 @@ async function convert(options) {
     frames: canvases.length, cols: sheet.cols, fps: o.fps, loops: o.loops,
     sheetW: sheet.sheetW, sheetH: sheet.sheetH, scale: o.scale,
     clickUrl: o.clickUrl, border: o.border, borderColor: o.borderColor, background: o.background,
-    spriteFile, backupFile, entryFile,
+    spriteFile, frameFiles, assetMode: o.assetMode, backupFile, entryFile,
     api: platform.api, clickInCode: o.clickInCode,
     platformLabel: platform.label,
   };
 
-  const spriteDataUrl = await blobToDataURL(spriteBlob);
   const external = buildCreative({ ...shared, spriteUrl: spriteFile, inlineSprite: false, inlineAll: false });
-  const inline = buildCreative({ ...shared, spriteUrl: spriteDataUrl, inlineSprite: true, inlineAll: true });
+  const inlineSheet = frameMode ? packSheet(canvases, spriteW, spriteH, o.background) : sheet;
+  const inlineBlob = frameMode ? await encode(inlineSheet.canvas, o.mime, o.quality) : spriteBlob;
+  const inline = buildCreative({
+    ...shared, assetMode: 'sprite', cols: inlineSheet.cols,
+    spriteUrl: await blobToDataURL(inlineBlob), inlineSprite: true, inlineAll: true,
+  });
 
   // Packaging is the platform's call where it has one. Admixer requires assets
   // as separate files, so a data: URI sprite is not an option there; elsewhere
@@ -1506,12 +1615,16 @@ async function convert(options) {
     ? platform.forcePackaging === 'inline'
     : o.inlineSprite;
 
+  const imageEntries = frameMode
+    ? await Promise.all(frameBlobs.map(async (blob, i) => ({ name: frameFiles[i], data: await blobBytes(blob) })))
+    : [{ name: spriteFile, data: await blobBytes(spriteBlob) }];
+
   const zipEntries = inlineSprite
     ? [{ name: entryFile, data: textBytes(inline.html) }]
     : [
       { name: entryFile, data: textBytes(external.html) },
       ...external.files.map((file) => ({ name: file.name, data: textBytes(file.text) })),
-      { name: spriteFile, data: await blobBytes(spriteBlob) },
+      ...imageEntries,
     ];
 
   // The preview folder Admixer packages carry: taken from the user's own
@@ -1556,8 +1669,10 @@ function showResult(result) {
   el.result.classList.remove('hidden');
 
   $('r-frames').textContent = `${result.frames} @ ${result.fps} fps (${(result.frames / result.fps).toFixed(2)} с)`;
-  $('r-sheet').textContent = `${result.sheetW}×${result.sheetH} · ${result.cols}×${Math.ceil(result.frames / result.cols)}`
-    + (result.scale === 1 ? '' : ` · ${Math.round(result.scale * 100)}%`);
+  $('r-sheet').textContent = result.assetMode === 'frames'
+    ? `${result.frames} × ${result.sheetW}×${result.sheetH} JPG`
+    : `${result.sheetW}×${result.sheetH} · ${result.cols}×${Math.ceil(result.frames / result.cols)}`
+      + (result.scale === 1 ? '' : ` · ${Math.round(result.scale * 100)}%`);
   $('r-sprite').textContent = kb(result.sizes.sprite);
   $('r-entry').textContent = `${result.entryFile} · ${kb(result.sizes.entry)}`;
   $('r-zip').textContent = kb(result.sizes.zip);
@@ -1572,7 +1687,12 @@ function showResult(result) {
   renderChecks(result, zipKb, memoryHeavy);
 
   const platformLabel = (PLATFORMS[result.options.platform] || PLATFORMS.any).label;
-  $('dl-zip').textContent = result.options.platform === 'any' ? '⤓ ZIP-пакет' : `⤓ ZIP для ${platformLabel}`;
+  const limit = budgetOf(PLATFORMS[result.options.platform] || PLATFORMS.any, result);
+  const over = limit && result.sizes.zip / 1024 > limit;
+  $('dl-zip').textContent = over
+    ? `⚠ ZIP ${kb(result.sizes.zip)} — понад ліміт ${limit} КБ`
+    : result.options.platform === 'any' ? '⤓ ZIP-пакет' : `⤓ ZIP для ${platformLabel}`;
+  $('dl-zip').classList.toggle('danger', Boolean(over));
   // The embedded-sprite build is not a deliverable where the platform demands
   // separate assets, but it is still the easiest thing to open and eyeball.
   $('dl-html').textContent = result.inlineSprite
@@ -1600,8 +1720,15 @@ function renderChecks(result, zipKb, memoryHeavy) {
   if (platform.forcePackaging === 'assets') {
     items.push([result.inlineSprite ? 'bad' : 'ok',
       result.inlineSprite
-        ? `${platform.label} вимагає ассети окремими файлами — спрайт у data: URI не підійде.`
-        : `Спрайт ${result.spriteFile} лежить окремим файлом, як вимагає ${platform.label}.`]);
+        ? `${platform.label} вимагає ассети окремими файлами — зображення в data: URI не підійде.`
+        : result.assetMode === 'frames'
+          ? `${result.frames} кадрів окремими JPG у ${result.frameFiles[0].split('/')[0]}/, як у шаблонах ${platform.label}.`
+          : `Спрайт ${result.spriteFile} лежить окремим файлом, як вимагає ${platform.label}.`]);
+  }
+
+  if (result.assetMode === 'sprite' && platform.api === 'admixer') {
+    items.push(['warn', 'Спрайт-аркуш ховає єдине посилання на зображення в CSS url() і залежить від того, '
+      + 'що майданчик не чіпатиме геометрію картинки. Шаблони платформи возять покадрові JPG — надійніше.']);
   }
 
   if (platform.formats.length && !platform.formats.includes(mime)) {
@@ -1854,6 +1981,8 @@ function applyPlatform({ resetBudget = true } = {}) {
   if (disallowed) {
     el.platformNote.textContent = `${platform.note} Поточний формат спрайта не підійде.`;
   }
+
+  if (resetBudget && platform.assetMode) el.assetMode.value = platform.assetMode;
 
   if (platform.forcePackaging) {
     el.packaging.value = platform.forcePackaging;

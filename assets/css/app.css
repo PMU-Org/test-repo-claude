@@ -146,6 +146,8 @@ input[type="file"]::file-selector-button {
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
 .btn.primary:hover:not(:disabled) { background: #f04039; border-color: #f04039; }
 .btn.ghost { background: transparent; }
+.btn.primary.danger { background: var(--warn); border-color: var(--warn); color: #241c05; }
+.btn.primary.danger:hover:not(:disabled) { background: #f0bf4a; border-color: #f0bf4a; }
 .btn.tiny { padding: 4px 9px; font-size: 12px; }
 
 .actions { margin-top: 18px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }

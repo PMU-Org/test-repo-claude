@@ -22,6 +22,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.webm': 'video/webm',
   '.webp': 'image/webp', '.png': 'image/png', '.svg': 'image/svg+xml',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.zip': 'application/zip',
 };
 
 const server = createServer(async (req, res) => {
@@ -73,7 +74,7 @@ const payload = await page.evaluate(async () => {
     frames: r.frames, cols: r.cols, fps: r.fps, sheetW: r.sheetW, sheetH: r.sheetH,
     sizes: r.sizes, width: r.width, height: r.height, scale: r.scale,
     entryFile: r.entryFile, inlineSprite: r.inlineSprite, zipFiles: r.zipFiles, api: r.api,
-    zipNames: r.zipNames, extraFiles: r.extraFiles,
+    zipNames: r.zipNames, extraFiles: r.extraFiles, assetMode: r.assetMode, frameFiles: r.frameFiles,
     verdict: document.getElementById('r-verdict').textContent,
     checks: [...document.querySelectorAll('#r-checks li')].map((li) => `${li.className || 'ok'} — ${li.textContent}`),
   };
@@ -115,26 +116,41 @@ await writePackage(OUT);
 await writeFile(join(OUT, payload.backupFile), Buffer.from(payload.backup, 'base64'));
 await writeFile(join(OUT, `delia-red-${payload.width}x${payload.height}.zip`), Buffer.from(payload.zip, 'base64'));
 
-// Verify the written banner actually animates: sample the sprite offset over time.
+/**
+ * Which frame is on screen, expressed the same way for both storage modes:
+ * the sprite offset, or the index of the visible <img>.
+ */
+const FRAME_PROBE = `(() => {
+  const el = document.getElementById('frame');
+  if (el) { return getComputedStyle(el).backgroundPosition; }
+  const imgs = [...document.querySelectorAll('#animation_container img')];
+  return String(imgs.findIndex((i) => getComputedStyle(i).display !== 'none'));
+})()`;
+const STAGE = payload.assetMode === 'frames' ? '#animation_container img' : '#frame';
+
+// Verify the written banner actually animates: sample the shown frame over time.
 const check = await browser.newPage({ viewport: { width: 420, height: 700 } });
 await check.goto(`http://127.0.0.1:${PORT}/demo/delia-red-300x600/${ENTRY}`);
-await check.waitForSelector('#frame');
+await check.waitForSelector(STAGE);
 const offsets = [];
 for (let i = 0; i < 6; i++) {
-  offsets.push(await check.evaluate(() => getComputedStyle(document.getElementById('frame')).backgroundPosition));
+  offsets.push(await check.evaluate(FRAME_PROBE));
   if (SHOTS) {
     await mkdir(SHOTS, { recursive: true });
-    await check.locator('#frame').screenshot({ path: join(SHOTS, `frame-${i}.png`), omitBackground: true });
+    await check.locator('#animation_container').screenshot({ path: join(SHOTS, `frame-${i}.png`), omitBackground: true });
   }
   await check.waitForTimeout(120);
 }
-console.log('background-position samples:', offsets.join(' | '));
+console.log('shown-frame samples:', offsets.join(' | '));
 if (new Set(offsets).size < 3) problems.push('banner does not appear to animate');
 
 // Same origin over http, so the sprite pixels are readable: confirm the frame
 // carries real contrast rather than a flat or blank surface.
 const contrast = await check.evaluate(async () => {
-  const url = getComputedStyle(document.getElementById('frame')).backgroundImage.slice(5, -2).replace(/^"|"$/g, '');
+  const el = document.getElementById('frame');
+  const url = el
+    ? getComputedStyle(el).backgroundImage.slice(5, -2).replace(/^"|"$/g, '')
+    : document.querySelector('#animation_container img').src;
   const img = new Image();
   const ok = await new Promise((res) => { img.onload = () => res(true); img.onerror = () => res(false); img.src = url; });
   if (!ok) return { ok: false };
@@ -182,10 +198,19 @@ if (payload.api === 'admixer') {
   if (payload.entryFile !== 'body.html') problems.push(`Admixer entry file must be body.html, got ${payload.entryFile}`);
   if (payload.inlineSprite) problems.push('Admixer requires the sprite as a separate file');
 
+  const image = payload.assetMode === 'frames' ? payload.frameFiles[0] : 'images/sprite.jpg';
   const expected = [
-    'body.html', 'js/banner.js', 'js/body.js', 'images/sprite.jpg',
+    'body.html', 'js/banner.js', 'js/body.js', image,
     'index/index.html', 'index/settings.js', 'index/css/index.css',
   ];
+  if (payload.assetMode === 'frames') {
+    if (payload.frameFiles.length !== payload.frames) {
+      problems.push(`${payload.frameFiles.length} frame files for ${payload.frames} frames`);
+    }
+    for (const file of payload.frameFiles) {
+      if (!payload.zipNames.includes(file)) problems.push(`ZIP is missing ${file}`);
+    }
+  }
   console.log('zip entries:', payload.zipNames);
   for (const want of expected) {
     if (!payload.zipNames.includes(want)) problems.push(`Admixer ZIP is missing ${want}`);
@@ -222,12 +247,15 @@ const solo = join(tmpdir(), `banner-solo-${Date.now()}`);
 await writePackage(solo);
 const alone = await browser.newPage({ viewport: { width: 400, height: 700 } });
 await alone.goto(pathToFileURL(join(solo, ENTRY)).href);
-await alone.waitForSelector('#frame');
+await alone.waitForSelector(STAGE);
 // Pixel reads are not possible here — a file:// image taints the canvas — so
 // this page proves the sprite loads and plays; the contrast check runs on the
 // http-served copy above.
 const render = await alone.evaluate(async () => {
-  const url = getComputedStyle(document.getElementById('frame')).backgroundImage.slice(5, -2).replace(/^"|"$/g, '');
+  const el = document.getElementById('frame');
+  const url = el
+    ? getComputedStyle(el).backgroundImage.slice(5, -2).replace(/^"|"$/g, '')
+    : document.querySelector('#animation_container img').src;
   const img = new Image();
   const ok = await new Promise((res) => { img.onload = () => res(true); img.onerror = () => res(false); img.src = url; });
   return { ok, scheme: url.slice(0, 5), naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight };
@@ -235,18 +263,38 @@ const render = await alone.evaluate(async () => {
 console.log(`extracted ${ENTRY} over file://:`, render);
 if (!render.ok) problems.push(`extracted ${ENTRY} could not load its sprite`);
 if (render.naturalWidth !== payload.sheetW) {
-  problems.push(`extracted ${ENTRY} loaded a sprite of ${render.naturalWidth}px, expected ${payload.sheetW}px`);
+  problems.push(`extracted ${ENTRY} loaded an image of ${render.naturalWidth}px, expected ${payload.sheetW}px`);
 }
 // Without the platform API present the creative must start by itself.
 const soloOffsets = [];
 for (let i = 0; i < 4; i++) {
-  soloOffsets.push(await alone.locator('#frame').evaluate((e) => getComputedStyle(e).backgroundPosition));
+  soloOffsets.push(await alone.evaluate(FRAME_PROBE));
   await alone.waitForTimeout(160);
 }
 console.log('  animates without the platform API:', new Set(soloOffsets).size > 2 ? 'yes' : 'NO');
 if (new Set(soloOffsets).size < 3) problems.push(`extracted ${ENTRY} does not animate without the platform API`);
 await alone.close();
 await rm(solo, { recursive: true, force: true });
+
+if (payload.assetMode === 'frames') {
+  const noJs = await browser.newPage({ viewport: { width: 400, height: 700 }, javaScriptEnabled: false });
+  await noJs.goto(`http://127.0.0.1:${PORT}/demo/delia-red-300x600/${ENTRY}`);
+  await noJs.waitForSelector('#animation_container img');
+  const shown = await noJs.evaluate(() => {
+    const imgs = [...document.querySelectorAll('#animation_container img')];
+    const first = imgs[0];
+    return {
+      total: imgs.length,
+      firstVisible: getComputedStyle(first).display !== 'none',
+      firstComplete: first.complete && first.naturalWidth > 0,
+      othersHidden: imgs.slice(1).every((i) => getComputedStyle(i).display === 'none'),
+    };
+  });
+  console.log('with JavaScript disabled:', shown);
+  if (!shown.firstVisible || !shown.firstComplete) problems.push('first frame does not render without JavaScript');
+  if (!shown.othersHidden) problems.push('frames other than the first are visible at rest');
+  await noJs.close();
+}
 
 // And the separate-sprite build must explain itself rather than go white.
 const orphanDir = join(tmpdir(), `banner-orphan-${Date.now()}`);
@@ -255,7 +303,7 @@ await writeFile(join(orphanDir, ENTRY), payload.htmlExternal);
 const orphan = await browser.newPage({ viewport: { width: 400, height: 700 } });
 await orphan.goto(pathToFileURL(join(orphanDir, ENTRY)).href);
 await orphan.waitForTimeout(600);
-const notice = (await orphan.locator('#frame').innerText()).trim();
+const notice = (await orphan.locator('#animation_container').innerText()).trim();
 console.log(`orphaned ${ENTRY} shows:`, JSON.stringify(notice.slice(0, 60) + '…'));
 if (!notice) problems.push(`orphaned ${ENTRY} still renders silently blank`);
 await orphan.close();
@@ -282,7 +330,8 @@ if (payload.api === 'admixer') {
   if (withTemplate.names.some((n) => n.includes('__MACOSX') || n.includes('.DS_Store'))) {
     problems.push('archive junk from the template reached the package');
   }
-  if (!withTemplate.names.includes('images/sprite.jpg') || withTemplate.names.includes('images/old.jpg')) {
+  const ownImage = payload.assetMode === 'frames' ? payload.frameFiles[0] : 'images/sprite.jpg';
+  if (!withTemplate.names.includes(ownImage) || withTemplate.names.includes('images/old.jpg')) {
     problems.push("the template's own creative assets were not replaced");
   }
   if (tpl.before.length === withTemplate.names.length && !withTemplate.carriesMarker) {
@@ -316,25 +365,26 @@ if (payload.api === 'admixer') {
     window.open = function (...args) { window.__calls.windowOpen++; return open.apply(window, args); };
   });
   await mock.goto(pathToFileURL(join(mockDir, ENTRY)).href);
-  await mock.waitForSelector('#frame');
+  await mock.waitForSelector(STAGE);
   await mock.waitForTimeout(400);
 
-  const held = await mock.evaluate(() => ({
+  const held = await mock.evaluate((probe) => ({
     subscribed: window.__calls.on,
-    positionBeforeLoad: getComputedStyle(document.getElementById('frame')).backgroundPosition,
-  }));
+    positionBeforeLoad: eval(probe),
+  }), FRAME_PROBE);
   await mock.evaluate(() => window.__fire && window.__fire());
   await mock.waitForTimeout(400);
   await mock.click('#container');
-  const after = await mock.evaluate(() => ({
+  const after = await mock.evaluate((probe) => ({
     calls: window.__calls,
-    positionAfterLoad: getComputedStyle(document.getElementById('frame')).backgroundPosition,
-  }));
+    positionAfterLoad: eval(probe),
+  }), FRAME_PROBE);
 
   console.log('mock globalHTML5Api:', { subscribed: held.subscribed, ...after.calls });
   if (!held.subscribed.includes('load')) problems.push('Admixer build does not subscribe to globalHTML5Api load');
-  if (held.positionBeforeLoad !== '0px 0px') problems.push('Admixer build animated before the load event fired');
-  if (after.positionAfterLoad === '0px 0px') problems.push('Admixer build did not start after the load event');
+  const AT_REST = payload.assetMode === 'frames' ? '0' : '0px 0px';
+  if (held.positionBeforeLoad !== AT_REST) problems.push('Admixer build animated before the load event fired');
+  if (after.positionAfterLoad === AT_REST) problems.push('Admixer build did not start after the load event');
   if (after.calls.click.length !== 1) problems.push(`expected one globalHTML5Api.click() call, got ${after.calls.click.length}`);
   if (after.calls.windowOpen !== 0) problems.push('Admixer build opened a window instead of using globalHTML5Api.click()');
   const initConfig = after.calls.init[0] ? JSON.parse(after.calls.init[0]) : null;

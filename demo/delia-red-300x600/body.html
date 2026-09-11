@@ -9,16 +9,30 @@
 html, body { margin: 0 0 0 0; }
 #container { position:absolute; left:0; top:0; width:100%; height:100%; }
 #animation_container { position:absolute; left:0; top:0; width:300px; height:600px; overflow:hidden; box-sizing:border-box; cursor:pointer; text-decoration:none; background-color:#ffffff; border:1px solid #d9d9d9; }
-#frame {
-  position: absolute; left: 0; top: 0; width: 300px; height: 600px;
-  background-image: url(images/sprite.jpg);
-  background-repeat: no-repeat;
-  background-position: 0 0;
-  background-size: 2100px 1800px;
-}
   </style>
   <div id="container">
-    <div id="animation_container"><div id="frame"></div></div>
+    <div id="animation_container">
+      <img src="images/frame-01.jpg" width="300" height="600" alt="delia-red-300x600" style="position:absolute;left:0;top:0;width:300px;height:600px;border:0;">
+      <img src="images/frame-02.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-03.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-04.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-05.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-06.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-07.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-08.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-09.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-10.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-11.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-12.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-13.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-14.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-15.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-16.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-17.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-18.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-19.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+      <img src="images/frame-20.jpg" width="300" height="600" alt="" style="position:absolute;left:0;top:0;width:300px;height:600px;display:none;border:0;">
+    </div>
   </div>
   <script type="text/javascript">
 // Local preview only — inert once Admixer provides the real API.
@@ -40,19 +54,24 @@ if (typeof globalHTML5Api === 'undefined') {
 <script type="text/javascript">
 // Local preview only — reports a partial extraction instead of a blank box.
 (function () {
-  var host = location.hostname;
-  var local = location.protocol === 'file:' || host === '' || host === 'localhost'
-    || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-  if (!local) { return; }
+  if (location.protocol !== 'file:') { return; }
   window.addEventListener('load', function () {
-    if (window.startBanner) { return; }
-    var el = document.getElementById('frame');
-    if (!el) { return; }
-    el.style.cssText += ';background:#fff;display:flex;align-items:center;justify-content:center;'
-      + 'padding:18px;font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
-    el.textContent = 'Не завантажились js/banner.js та js/body.js поруч з body.html. '
-      + 'Розпакуйте архів повністю, зі збереженням теки js/ та images/. '
-      + '(Sibling scripts missing: extract the whole archive, keeping its folders.)';
+    var box = document.getElementById('animation_container');
+    if (!box) { return; }
+    var img = box.getElementsByTagName('img')[0];
+    var frame = document.getElementById('frame');
+    // Something renders — a static first frame is a degraded banner, not a
+    // broken one — so only speak up when the box is truly empty.
+    if (img && img.naturalWidth > 0) { return; }
+    if (frame && window.startBanner) { return; }
+    var note = document.createElement('div');
+    note.style.cssText = 'position:absolute;left:0;top:0;right:0;bottom:0;background:#fff;display:flex;'
+      + 'align-items:center;justify-content:center;padding:18px;color:#c1121f;text-align:center;'
+      + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;';
+    note.textContent = 'Файли банера не завантажились поруч з body.html. '
+      + 'Розпакуйте архів повністю, зі збереженням тек js/ та images/. '
+      + '(Assets missing: extract the whole archive, keeping its folders.)';
+    box.appendChild(note);
   });
 })();
 </script>

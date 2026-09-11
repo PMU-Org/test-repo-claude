@@ -96,7 +96,7 @@
       </fieldset>
 
       <fieldset>
-        <legend>Спрайт</legend>
+        <legend>Зображення</legend>
         <label>Формат
           <select id="opt-format">
             <option value="image/jpeg" selected>JPEG — без альфи</option>
@@ -106,6 +106,12 @@
         </label>
         <label>Якість <output id="q-out">80</output>
           <input type="range" id="opt-quality" min="20" max="100" step="1" value="80">
+        </label>
+        <label>Кадри
+          <select id="opt-asset-mode">
+            <option value="frames" selected>Окремими JPG — як у шаблонах платформ</option>
+            <option value="sprite">Один спрайт-аркуш — легше, але крихкіше</option>
+          </select>
         </label>
         <label>Роздільність спрайта
           <select id="opt-scale">

@@ -1,29 +1,68 @@
 /**
- * Generates the banner package.
+ * Generates the creative package.
  *
  * Two flavours, because ad platforms disagree on the basics:
  *
- *  - `standard` — Google Ads, DV360, CM360, IAB. Entry point index.html, a
- *    <meta name="ad.size"> declaration, a global clickTag, and the creative
- *    starts on its own.
+ *  - `standard` — Google Ads, DV360, CM360, IAB. One index.html carrying a
+ *    <meta name="ad.size"> declaration and a global clickTag; the creative
+ *    starts by itself.
  *
- *  - `admixer` — Admixer Standard HTML5. Entry point body.html, everything
- *    inside <body> (their docs are explicit that content outside it may not
- *    show), the creative waits for globalHTML5Api's load event, and the exit
- *    goes through globalHTML5Api.click() rather than window.open.
+ *  - `admixer` — Admixer Standard HTML5 API 2.0, laid out the way their own
+ *    template is: body.html in the archive root, assets under images/, the
+ *    platform glue in js/body.js and the player in js/banner.js. Everything
+ *    sits inside <body>, because their docs are explicit that markup outside
+ *    it may not show. The glue registers on globalHTML5Api's load event,
+ *    declares the banner's size through init({resize: [...]}) and exits via
+ *    globalHTML5Api.click().
  *
  * Either way the player advances on requestAnimationFrame with an accumulator
  * instead of setInterval, so playback holds the requested fps without
  * drifting, and it parks on the last frame once the loop budget is spent.
  */
 
-/** Core playback, identical in both flavours. */
-const PLAYER_CORE = `  var FRAMES = %FRAMES%, COLS = %COLS%, FW = %FW%, FH = %FH%, FPS = %FPS%, LOOPS = %LOOPS%;
-  var el = document.getElementById('frame'), ad = document.getElementById('ad');
+const escapeAttr = (value) =>
+  String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const jsString = (value) => JSON.stringify(String(value));
+
+/* ── player ───────────────────────────────────────────────────────────── */
+
+function buildPlayer(cfg, { exposeStart }) {
+  const { frames, cols, width, height, fps, loops, spriteFile, entryFile, inlineSprite } = cfg;
+
+  const guard = inlineSprite ? '' : `
+  var probe = new Image();
+  probe.onerror = function () {
+    cancelAnimationFrame(raf);
+    raf = 0;
+    if (window.console) { console.error('${spriteFile} failed to load next to ${entryFile}'); }
+    var host = location.hostname;
+    var local = location.protocol === 'file:' || host === '' || host === 'localhost'
+      || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+    if (!local) { return; }
+    el.style.background = '#fff';
+    el.style.cssText += ';display:flex;align-items:center;justify-content:center;padding:18px;'
+      + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
+    el.textContent = 'Не знайдено ${spriteFile} поруч з ${entryFile}. '
+      + 'Розпакуйте архів повністю — банер складається з кількох файлів. '
+      + '(Missing ${spriteFile}: extract the whole archive, do not open ${entryFile} from inside the ZIP.)';
+  };
+  probe.src = '${spriteFile}';
+`;
+
+  // `startBanner` is what js/body.js calls once Admixer fires its load event;
+  // the standard flavour has nothing to wait for and starts immediately.
+  const tail = exposeStart
+    ? '  window.startBanner = start;\n'
+    : '  start();\n';
+
+  return `(function () {
+  var FRAMES = ${frames}, COLS = ${cols}, FW = ${width}, FH = ${height}, FPS = ${fps}, LOOPS = ${loops};
+  var el = document.getElementById('frame');
   var idx = 0, loops = 0, acc = 0, prev = 0, raf = 0, step = 1000 / FPS;
 
   function show(i) {
-    el.style.backgroundPosition = -(i %% COLS) * FW + 'px ' + -Math.floor(i / COLS) * FH + 'px';
+    el.style.backgroundPosition = -(i % COLS) * FW + 'px ' + -Math.floor(i / COLS) * FH + 'px';
   }
 
   function tick(now) {
@@ -54,88 +93,96 @@ const PLAYER_CORE = `  var FRAMES = %FRAMES%, COLS = %COLS%, FW = %FW%, FH = %FH
     if (document.hidden) { cancelAnimationFrame(raf); raf = 0; prev = 0; }
     else if (!raf && !(LOOPS && loops >= LOOPS)) { raf = requestAnimationFrame(tick); }
   });
-`;
-
-const EXIT_STANDARD = `
-  if (ad) {
-    ad.href = window.clickTag || '#';
-    ad.addEventListener('click', function (e) {
-      e.preventDefault();
-      window.open(window.clickTag, '_blank');
-    });
-  }
-  start();
-`;
-
-/**
- * Admixer connects globalHTML5Api itself and expects the creative to wait for
- * its load event. The fallback branch is what makes the exported file still
- * open by double click: with no API present it simply starts and exits through
- * window.open, so local preview behaves like the served creative.
- *
- * click() is called without an argument by default. Admixer's docs warn that a
- * URL in the code outranks the Landing Page field in their UI and that mixing
- * the two is a conflict, so the safe default is to let the UI own the URL.
- */
-const EXIT_ADMIXER = `
-  function exit() {
-    var api = window.globalHTML5Api;
-    if (api && typeof api.click === 'function') { api.click(%CLICK_ARG%); return; }
-    window.open(CLICK_URL, '_blank'); // local preview, outside Admixer
-  }
-
-  if (ad) {
-    ad.addEventListener('click', function (e) { e.preventDefault(); exit(); });
-    ad.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); exit(); }
-    });
-  }
-
-  var api = window.globalHTML5Api;
-  if (api && typeof api.on === 'function') { api.on('load', start); } else { start(); }
-`;
-
-/**
- * A missing sprite otherwise renders as a silent white box — the failure you
- * get by opening the entry file straight out of a ZIP viewer, which extracts
- * only the file you clicked. Say so, but only while previewing locally: a
- * served creative must never show diagnostics to an actual viewer.
- */
-const SPRITE_GUARD = `
-  var probe = new Image();
-  probe.onerror = function () {
-    cancelAnimationFrame(raf);
-    raf = 0;
-    if (window.console) { console.error('%SPRITE_FILE% failed to load next to %ENTRY_FILE%'); }
-    var host = location.hostname;
-    var local = location.protocol === 'file:' || host === '' || host === 'localhost'
-      || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-    if (!local) { return; }
-    el.style.background = '#fff';
-    el.style.cssText += ';display:flex;align-items:center;justify-content:center;padding:18px;'
-      + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
-    el.textContent = 'Не знайдено %SPRITE_FILE% поруч з %ENTRY_FILE%. '
-      + 'Розпакуйте архів повністю — банер складається з двох файлів. '
-      + '(Missing %SPRITE_FILE%: extract the whole archive, do not open %ENTRY_FILE% from inside the ZIP.)';
-  };
-  probe.src = '%SPRITE_FILE%';`;
-
-function escapeAttr(value) {
-  return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+${guard}${tail}})();`;
 }
 
-const jsString = (value) => JSON.stringify(String(value));
+/* ── Admixer glue, shaped like the platform's own template ────────────── */
 
-function buildStyles({ width, height, background, border, borderColor, spriteUrl, bgW, bgH }) {
-  const adRules = [
-    'display:block', 'position:relative', `width:${width}px`, `height:${height}px`,
-    'overflow:hidden', 'text-decoration:none', 'box-sizing:border-box', 'cursor:pointer',
-    background ? `background:${background}` : 'background:transparent',
+function buildAdmixerGlue(cfg) {
+  const clickArg = cfg.clickInCode ? jsString(cfg.clickUrl) : '';
+  return `globalHTML5Api.on("load", function () {
+\tfunction $(id) {
+\t\treturn document.getElementById(id);
+\t}
+\t$("container").onclick = function (_event) {
+\t\tglobalHTML5Api.click(${clickArg});
+\t};
+\tdocument.body.onselectstart = function () {
+\t\treturn false;
+\t};
+\tglobalHTML5Api.init({
+\t\t'resize': [
+\t\t{
+\t\t\t'name': 'state-1',
+\t\t\t'width': '${cfg.width}px',
+\t\t\t'height': '${cfg.height}px'
+\t\t}
+\t\t]
+\t});
+\tstartBanner();
+});
+`;
+}
+
+/**
+ * With the player in a sibling file, a partial extraction leaves no script to
+ * report it — so this check has to be inline in the entry file. It fires only
+ * when the player never registered, and only during local preview.
+ */
+function buildAssetCheck(entryFile) {
+  return `(function () {
+  var host = location.hostname;
+  var local = location.protocol === 'file:' || host === '' || host === 'localhost'
+    || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+  if (!local) { return; }
+  window.addEventListener('load', function () {
+    if (window.startBanner) { return; }
+    var el = document.getElementById('frame');
+    if (!el) { return; }
+    el.style.cssText += ';background:#fff;display:flex;align-items:center;justify-content:center;'
+      + 'padding:18px;font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
+    el.textContent = 'Не завантажились js/banner.js та js/body.js поруч з ${entryFile}. '
+      + 'Розпакуйте архів повністю, зі збереженням теки js/ та images/. '
+      + '(Sibling scripts missing: extract the whole archive, keeping its folders.)';
+  });
+})();`;
+}
+
+/**
+ * Stand-in API for opening the exported file directly. Admixer injects the
+ * real globalHTML5Api before the creative's scripts run — js/body.js in their
+ * own template calls it at parse time — so this only ever defines anything
+ * when the creative is outside the platform, and is inert when served.
+ */
+function buildPreviewShim(clickUrl) {
+  return `if (typeof globalHTML5Api === 'undefined') {
+  window.globalHTML5Api = {
+    on: function (event, handler) {
+      if (event !== 'load') { return; }
+      if (document.readyState === 'complete') { handler(); }
+      else { window.addEventListener('load', handler); }
+    },
+    init: function () {},
+    close: function () {},
+    click: function (url) { window.open(url || ${jsString(clickUrl)}, '_blank'); }
+  };
+}`;
+}
+
+/* ── styles ───────────────────────────────────────────────────────────── */
+
+function buildStyles(cfg, rootId) {
+  const { width, height, background, border, borderColor, spriteUrl, bgW, bgH } = cfg;
+  const rootRules = [
+    'position:absolute', 'left:0', 'top:0',
+    `width:${width}px`, `height:${height}px`,
+    'overflow:hidden', 'box-sizing:border-box', 'cursor:pointer', 'text-decoration:none',
+    background ? `background-color:${background}` : 'background-color:transparent',
     border ? `border:1px solid ${borderColor}` : 'border:0',
-  ].join(';');
+  ].join('; ');
 
-  return `html, body { margin: 0; padding: 0; background: transparent; }
-#ad { ${adRules}; }
+  return `html, body { margin: 0 0 0 0; }
+#${rootId} { ${rootRules}; }
 #frame {
   position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px;
   background-image: url(${spriteUrl});
@@ -145,92 +192,113 @@ function buildStyles({ width, height, background, border, borderColor, spriteUrl
 }`;
 }
 
-function buildScript(cfg, bgW, bgH) {
-  const { frames, cols, width, height, fps, loops, api, clickUrl, clickInCode, spriteFile, entryFile, inlineSprite } = cfg;
-
-  const exit = api === 'admixer'
-    ? EXIT_ADMIXER.replace('%CLICK_ARG%', clickInCode ? 'CLICK_URL' : '')
-    : EXIT_STANDARD;
-
-  const guard = inlineSprite
-    ? ''
-    : SPRITE_GUARD.split('%SPRITE_FILE%').join(spriteFile).split('%ENTRY_FILE%').join(entryFile);
-
-  const core = PLAYER_CORE
-    .replace(/%%/g, '%')
-    .replace('%FRAMES%', frames)
-    .replace('%COLS%', cols)
-    .replace('%FW%', width)
-    .replace('%FH%', height)
-    .replace('%FPS%', fps)
-    .replace('%LOOPS%', loops);
-
-  const preamble = api === 'admixer'
-    ? `  var CLICK_URL = ${jsString(clickUrl)};\n`
-    : '';
-
-  return `(function () {\n${preamble}${core}${exit}${guard}\n})();`;
-}
+/* ── package assembly ─────────────────────────────────────────────────── */
 
 /**
  * @param {object} cfg
  * @param {'standard'|'admixer'} cfg.api
- * @returns {string} the banner document
+ * @param {boolean} cfg.inlineSprite  sprite as a data: URI rather than a file
+ * @param {boolean} cfg.inlineAll     fold the scripts into the HTML too
+ * @returns {{entryFile: string, html: string, files: Array<{name: string, text: string}>}}
  */
-export function buildBannerHtml(cfg) {
-  const { name, width, height, frames, cols, clickUrl, api } = cfg;
-  const rows = Math.ceil(frames / cols);
+export function buildCreative(cfg) {
+  const rows = Math.ceil(cfg.frames / cfg.cols);
   // The sheet may be encoded below 1:1 to save bytes, so background-size is
   // expressed in CSS pixels — one cell always covers exactly one banner.
-  const bgW = cols * width;
-  const bgH = rows * height;
+  const geometry = { ...cfg, bgW: cfg.cols * cfg.width, bgH: rows * cfg.height };
 
-  const styles = buildStyles({ ...cfg, bgW, bgH });
-  const script = buildScript(cfg, bgW, bgH);
-  const title = `${escapeAttr(name)} — ${width}x${height}`;
+  return cfg.api === 'admixer' ? admixerPackage(geometry) : standardPackage(geometry);
+}
 
-  // Admixer's docs require the creative to live inside <body>; content placed
-  // outside it may not be served, so the styles go in the body for that flavour.
-  if (api === 'admixer') {
-    return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>${title}</title>
+function admixerPackage(cfg) {
+  const { width, height, name, entryFile, inlineAll } = cfg;
+  const styles = buildStyles(cfg, 'container');
+  const player = buildPlayer(cfg, { exposeStart: true });
+  const glue = buildAdmixerGlue(cfg);
+  const shim = buildPreviewShim(cfg.clickUrl);
+
+  const scripts = inlineAll
+    ? `<script type="text/javascript">
+// Local preview only — inert once Admixer provides the real API.
+${shim}
+</script>
+<script type="text/javascript">
+${player}
+</script>
+<script type="text/javascript">
+${glue}</script>`
+    : `<script type="text/javascript">
+// Local preview only — inert once Admixer provides the real API.
+${shim}
+</script>
+<script type="text/javascript" src="js/banner.js"></script>
+<script type="text/javascript" src="js/body.js"></script>
+<script type="text/javascript">
+// Local preview only — reports a partial extraction instead of a blank box.
+${buildAssetCheck(cfg.entryFile)}
+</script>`;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head lang="en">
+  <meta charset="UTF-8">
+  <title>${escapeAttr(name)} ${width}x${height}</title>
 </head>
 <body>
-<style>
+  <style type="text/css">
 ${styles}
-</style>
-<div id="ad" role="link" tabindex="0" aria-label="${escapeAttr(name)}"><div id="frame"></div></div>
-<script>
-${script}
-</script>
+  </style>
+  <div id="container"><div id="frame"></div></div>
+  ${scripts}
 </body>
 </html>
 `;
-  }
 
-  return `<!doctype html>
+  return {
+    entryFile,
+    html,
+    files: inlineAll ? [] : [
+      { name: 'js/banner.js', text: `${player}\n` },
+      { name: 'js/body.js', text: glue },
+    ],
+  };
+}
+
+function standardPackage(cfg) {
+  const { width, height, name, clickUrl, entryFile } = cfg;
+  const styles = buildStyles(cfg, 'container');
+  const player = buildPlayer(cfg, { exposeStart: false });
+
+  const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="ad.size" content="width=${width},height=${height}">
-<title>${title}</title>
+<title>${escapeAttr(name)} — ${width}x${height}</title>
 <style>
 ${styles}
 </style>
 </head>
 <body>
-<a id="ad" href="${escapeAttr(clickUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttr(name)}"><div id="frame"></div></a>
+<a id="container" href="${escapeAttr(clickUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttr(name)}"><div id="frame"></div></a>
 <script>
 var clickTag = ${jsString(clickUrl)};
-${script}
+${player}
+(function () {
+  var ad = document.getElementById('container');
+  ad.href = window.clickTag || '#';
+  ad.addEventListener('click', function (e) {
+    e.preventDefault();
+    window.open(window.clickTag, '_blank');
+  });
+})();
 </script>
 </body>
 </html>
 `;
+
+  return { entryFile, html, files: [] };
 }
 
 /** Plain-text manifest shipped inside the ZIP where the platform allows it. */
@@ -239,25 +307,31 @@ export function buildManifest(cfg) {
   const admixer = cfg.api === 'admixer';
 
   const files = cfg.inlineSprite
-    ? `  ${cfg.entryFile.padEnd(15)} the complete creative; the sprite sheet is embedded in it,
-                  so this one file is the whole banner`
-    : `  ${cfg.entryFile.padEnd(15)} the creative; entry point for the ad server
-  ${cfg.spriteFile.padEnd(15)} sprite sheet with every frame
-
-  IMPORTANT: ${cfg.entryFile} and ${cfg.spriteFile} must stay together. Opening
-  ${cfg.entryFile} straight out of a ZIP viewer extracts only that one file and
-  the banner renders blank — extract the whole archive first.`;
+    ? `  ${cfg.entryFile.padEnd(18)} the complete creative; the sprite sheet is embedded
+                     in it, so this one file is the whole banner`
+    : [
+      `  ${cfg.entryFile.padEnd(18)} the creative; entry point for the ad server`,
+      admixer ? `  js/banner.js       sprite playback, exposes startBanner()` : null,
+      admixer ? `  js/body.js         Admixer glue: load event, init(), click()` : null,
+      `  ${cfg.spriteFile.padEnd(18)} sprite sheet with every frame`,
+      '',
+      `  IMPORTANT: these files must stay together. Opening ${cfg.entryFile} straight`,
+      '  out of a ZIP viewer extracts only that one file and the banner renders',
+      '  blank — extract the whole archive first.',
+    ].filter(Boolean).join('\n');
 
   const platformNotes = admixer
-    ? `  - Built for Admixer Standard HTML5: ${cfg.entryFile} sits in the archive
-    root, the creative lives inside <body>, playback starts on
-    globalHTML5Api.on('load', ...) and the exit calls globalHTML5Api.click(${cfg.clickInCode ? 'URL' : ''}).
+    ? `  - Built for Admixer Standard HTML5 API 2.0, following their template
+    layout: ${cfg.entryFile} in the archive root, assets under images/ and
+    scripts under js/, everything rendered from inside <body>.
+  - js/body.js registers globalHTML5Api.on('load', ...), declares the size
+    through init({resize: [{name: 'state-1', width: '${cfg.width}px',
+    height: '${cfg.height}px'}]}) and exits via globalHTML5Api.click(${cfg.clickInCode ? 'URL' : ''}).
   - ${cfg.clickInCode
       ? 'The clickthrough URL is set in the code, so leave the Landing Page field\n    in the creative template empty — a URL in both places is a conflict.'
       : 'No URL is passed in the code, so set the clickthrough in the Landing Page\n    field of the creative template.'}
-  - Outside Admixer (double-clicking the file) the creative detects that the API
-    is absent, starts immediately and opens the URL directly, so it stays
-    previewable.`
+  - Opened outside Admixer the creative detects that the API is absent, falls
+    back to a preview stub and runs anyway, so it stays previewable.`
     : `  - ${cfg.entryFile} declares <meta name="ad.size"> and a global clickTag
     variable, so Google Ads, Display & Video 360 and Campaign Manager pick up
     both the dimensions and the exit URL automatically.`;
@@ -271,7 +345,6 @@ Frames            ${cfg.frames} (${cfg.cols} cols x ${Math.ceil(cfg.frames / cfg
 Frame rate        ${cfg.fps} fps
 Animation length  ${seconds} s x ${cfg.loops === 0 ? 'infinite' : cfg.loops} loop(s)
 Sprite sheet      ${cfg.inlineSprite ? 'embedded' : cfg.spriteFile} — ${cfg.sheetW}x${cfg.sheetH} px (${Math.round(cfg.scale * 100)}% of display size)
-Packaging         ${cfg.inlineSprite ? 'single file, sprite embedded as a data: URI' : `${cfg.entryFile} plus a separate sprite file`}
 Backup image      ${cfg.backupFile} — downloaded separately, not in this ZIP
 Click-through     ${cfg.clickUrl}
 

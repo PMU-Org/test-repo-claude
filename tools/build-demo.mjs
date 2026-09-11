@@ -8,7 +8,7 @@
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
-import { extname, join, resolve } from 'node:path';
+import { dirname, extname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 
@@ -72,6 +72,7 @@ const payload = await page.evaluate(async () => {
     frames: r.frames, cols: r.cols, fps: r.fps, sheetW: r.sheetW, sheetH: r.sheetH,
     sizes: r.sizes, width: r.width, height: r.height, scale: r.scale,
     entryFile: r.entryFile, inlineSprite: r.inlineSprite, zipFiles: r.zipFiles, api: r.api,
+    zipNames: r.zipNames, extraFiles: r.extraFiles,
     verdict: document.getElementById('r-verdict').textContent,
     checks: [...document.querySelectorAll('#r-checks li')].map((li) => `${li.className || 'ok'} — ${li.textContent}`),
   };
@@ -92,8 +93,21 @@ await mkdir(OUT, { recursive: true });
 // The demo folder mirrors the ZIP exactly: the entry file the platform expects
 // plus the separate sprite it references.
 const ENTRY = payload.entryFile;
-await writeFile(join(OUT, ENTRY), payload.inlineSprite ? payload.htmlInline : payload.htmlExternal);
-await writeFile(join(OUT, payload.spriteFile), Buffer.from(payload.sprite, 'base64'));
+
+/** Writes the package the same way the ZIP lays it out, subfolders included. */
+async function writePackage(dir) {
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, ENTRY), payload.inlineSprite ? payload.htmlInline : payload.htmlExternal);
+  if (payload.inlineSprite) return;
+  for (const file of payload.extraFiles) {
+    await mkdir(dirname(join(dir, file.name)), { recursive: true });
+    await writeFile(join(dir, file.name), file.text);
+  }
+  await mkdir(dirname(join(dir, payload.spriteFile)), { recursive: true });
+  await writeFile(join(dir, payload.spriteFile), Buffer.from(payload.sprite, 'base64'));
+}
+
+await writePackage(OUT);
 await writeFile(join(OUT, payload.backupFile), Buffer.from(payload.backup, 'base64'));
 await writeFile(join(OUT, `delia-red-${payload.width}x${payload.height}.zip`), Buffer.from(payload.zip, 'base64'));
 
@@ -106,7 +120,7 @@ for (let i = 0; i < 6; i++) {
   offsets.push(await check.evaluate(() => getComputedStyle(document.getElementById('frame')).backgroundPosition));
   if (SHOTS) {
     await mkdir(SHOTS, { recursive: true });
-    await check.locator('#ad').screenshot({ path: join(SHOTS, `frame-${i}.png`), omitBackground: true });
+    await check.locator('#container').screenshot({ path: join(SHOTS, `frame-${i}.png`), omitBackground: true });
   }
   await check.waitForTimeout(120);
 }
@@ -136,7 +150,7 @@ else if (contrast.contrast < 30) problems.push('served banner renders a flat/bla
 if (payload.api === 'admixer') {
   const shape = await check.evaluate(() => ({
     stylesInBody: !!document.querySelector('body > style'),
-    creativeInBody: !!document.querySelector('body > #ad'),
+    creativeInBody: !!document.querySelector('body > #container'),
     headHasStyle: !!document.querySelector('head style'),
   }));
   console.log('admixer document shape:', shape);
@@ -151,7 +165,7 @@ if (payload.api === 'admixer') {
 }
 
 // A scaled sprite must still lay out at exactly the declared banner size.
-const box = await check.locator('#ad').boundingBox();
+const box = await check.locator('#container').boundingBox();
 console.log('rendered box:', box.width + 'x' + box.height);
 if (Math.abs(box.width - payload.width) > 2 || Math.abs(box.height - payload.height) > 2) {
   problems.push(`banner renders at ${box.width}x${box.height}, expected ${payload.width}x${payload.height}`);
@@ -160,7 +174,30 @@ if (payload.api === 'admixer') {
   if (payload.sizes.zip / 1024 > 300) problems.push(`ZIP is ${(payload.sizes.zip / 1024).toFixed(1)} KB, over Admixer's 300 KB`);
   if (payload.entryFile !== 'body.html') problems.push(`Admixer entry file must be body.html, got ${payload.entryFile}`);
   if (payload.inlineSprite) problems.push('Admixer requires the sprite as a separate file');
-  if (payload.zipFiles !== 2) problems.push(`Admixer ZIP should hold exactly body.html and the sprite, got ${payload.zipFiles} entries`);
+
+  const expected = ['body.html', 'js/banner.js', 'js/body.js', 'images/sprite.jpg'];
+  console.log('zip entries:', payload.zipNames);
+  for (const want of expected) {
+    if (!payload.zipNames.includes(want)) problems.push(`Admixer ZIP is missing ${want}`);
+  }
+  if (payload.zipNames.length !== expected.length) {
+    problems.push(`Admixer ZIP holds ${payload.zipNames.length} entries, expected ${expected.length}`);
+  }
+
+  // The glue file is the contract with the platform — check its shape, not
+  // just that it exists.
+  const glue = payload.extraFiles.find((f) => f.name === 'js/body.js')?.text || '';
+  const wants = [
+    ['globalHTML5Api.on("load"', 'load-event registration'],
+    ['globalHTML5Api.init(', 'init() call'],
+    ['globalHTML5Api.click(', 'click() exit'],
+    [`'width': '${payload.width}px'`, 'declared width'],
+    [`'height': '${payload.height}px'`, 'declared height'],
+    ['startBanner();', 'playback start'],
+  ];
+  for (const [needle, what] of wants) {
+    if (!glue.includes(needle)) problems.push(`js/body.js is missing the ${what}`);
+  }
 }
 if (!payload.spriteFile.endsWith('.jpg') && !payload.spriteFile.endsWith('.png')) {
   problems.push(`sprite is ${payload.spriteFile}, which Google Ads does not accept`);
@@ -172,11 +209,7 @@ if (blocking) problems.push(`${blocking} blocking compliance check(s) on the dem
 // The regression that matters most: the package extracted somewhere on its
 // own, opened over file://, must render the creative rather than a blank box.
 const solo = join(tmpdir(), `banner-solo-${Date.now()}`);
-await mkdir(solo, { recursive: true });
-await writeFile(join(solo, ENTRY), payload.inlineSprite ? payload.htmlInline : payload.htmlExternal);
-if (!payload.inlineSprite) {
-  await writeFile(join(solo, payload.spriteFile), Buffer.from(payload.sprite, 'base64'));
-}
+await writePackage(solo);
 const alone = await browser.newPage({ viewport: { width: 400, height: 700 } });
 await alone.goto(pathToFileURL(join(solo, ENTRY)).href);
 await alone.waitForSelector('#frame');
@@ -223,15 +256,16 @@ await rm(orphanDir, { recursive: true, force: true });
 // exit must go through click() instead of opening a window itself.
 if (payload.api === 'admixer') {
   const mockDir = join(tmpdir(), `banner-mock-${Date.now()}`);
-  await mkdir(mockDir, { recursive: true });
-  await writeFile(join(mockDir, ENTRY), payload.htmlExternal);
-  await writeFile(join(mockDir, payload.spriteFile), Buffer.from(payload.sprite, 'base64'));
+  await writePackage(mockDir);
   const mock = await browser.newPage({ viewport: { width: 400, height: 700 } });
   await mock.addInitScript(() => {
     window.__calls = { on: [], click: [], windowOpen: 0 };
     window.__fire = null;
+    window.__calls.init = [];
     window.globalHTML5Api = {
       on: (event, handler) => { window.__calls.on.push(event); if (event === 'load') window.__fire = handler; },
+      init: (config) => { window.__calls.init.push(JSON.stringify(config)); },
+      close: () => {},
       click: (url) => { window.__calls.click.push(url === undefined ? '(no argument)' : url); },
     };
     const open = window.open;
@@ -247,7 +281,7 @@ if (payload.api === 'admixer') {
   }));
   await mock.evaluate(() => window.__fire && window.__fire());
   await mock.waitForTimeout(400);
-  await mock.click('#ad');
+  await mock.click('#container');
   const after = await mock.evaluate(() => ({
     calls: window.__calls,
     positionAfterLoad: getComputedStyle(document.getElementById('frame')).backgroundPosition,
@@ -259,6 +293,14 @@ if (payload.api === 'admixer') {
   if (after.positionAfterLoad === '0px 0px') problems.push('Admixer build did not start after the load event');
   if (after.calls.click.length !== 1) problems.push(`expected one globalHTML5Api.click() call, got ${after.calls.click.length}`);
   if (after.calls.windowOpen !== 0) problems.push('Admixer build opened a window instead of using globalHTML5Api.click()');
+  const initConfig = after.calls.init[0] ? JSON.parse(after.calls.init[0]) : null;
+  if (!initConfig) problems.push('Admixer build never called globalHTML5Api.init()');
+  else {
+    const state = initConfig.resize && initConfig.resize[0];
+    if (!state || state.width !== `${payload.width}px` || state.height !== `${payload.height}px`) {
+      problems.push(`init() declared ${JSON.stringify(state)}, expected ${payload.width}x${payload.height}`);
+    }
+  }
   await mock.close();
   await rm(mockDir, { recursive: true, force: true });
 }

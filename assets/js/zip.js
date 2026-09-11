@@ -30,10 +30,26 @@ function dosDateTime(date) {
 }
 
 /**
+ * Explicit directory entries for every folder the files live in. Extractors
+ * generally create missing folders themselves, but real packages from these
+ * platforms carry them, and an unpacker that does not is the kind of thing
+ * you discover after a creative is rejected.
+ */
+function directoryEntries(entries) {
+  const dirs = new Set();
+  for (const entry of entries) {
+    const parts = entry.name.split('/');
+    for (let i = 1; i < parts.length; i++) dirs.add(`${parts.slice(0, i).join('/')}/`);
+  }
+  return [...dirs].sort().map((name) => ({ name, data: new Uint8Array(0), isDir: true }));
+}
+
+/**
  * @param {Array<{name: string, data: Uint8Array}>} entries
  * @returns {Blob} application/zip
  */
-export function createZip(entries) {
+export function createZip(files) {
+  const entries = [...directoryEntries(files), ...files];
   const encoder = new TextEncoder();
   const { time, day } = dosDateTime(new Date());
   const locals = [];
@@ -72,6 +88,7 @@ export function createZip(entries) {
     cv.setUint32(20, data.length, true);
     cv.setUint32(24, data.length, true);
     cv.setUint16(28, name.length, true);
+    cv.setUint32(38, entry.isDir ? 0x10 : 0, true); // MS-DOS directory attribute
     cv.setUint32(42, offset, true);    // relative offset of local header
     central.set(name, 46);
 

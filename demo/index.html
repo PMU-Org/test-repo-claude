@@ -38,17 +38,19 @@
       <div>
         <dl class="meta" style="margin-top:0">
           <div><dt>Джерело</dt><dd>1538 КБ · VP9 · 30 fps</dd></div>
-          <div><dt>Результат</dt><dd>292 КБ ZIP</dd></div>
+          <div><dt>Результат</dt><dd>293 КБ ZIP</dd></div>
           <div><dt>Кадрів</dt><dd>20 @ 10 fps</dd></div>
-          <div><dt>Спрайт</dt><dd>sprite.jpg · 2100×1800 · 7×3</dd></div>
+          <div><dt>Спрайт</dt><dd>images/sprite.jpg · 2100×1800</dd></div>
           <div><dt>Роздільність</dt><dd>100% — 1:1</dd></div>
           <div><dt>Точка входу</dt><dd>body.html у корені</dd></div>
         </dl>
-        <p class="hint">Зібрано під профіль <b>Admixer — Standard HTML5</b>: <code>body.html</code> у корені архіву, JPEG-спрайт окремим файлом, усе всередині <code>&lt;body&gt;</code>, старт на <code>globalHTML5Api.on('load')</code>, клік через <code>globalHTML5Api.click()</code>. Автопідбір з пріоритетом «тримати різкість» утримав 1:1 у межах 300 КБ, тож юридичний дисклеймер унизу креативу лишився читабельним.</p>
+        <p class="hint">Зібрано під профіль <b>Admixer — Standard HTML5 API 2.0</b> за розкладкою їхнього шаблону: <code>body.html</code> у корені, ассети в <code>images/</code>, скрипти в <code>js/</code>, усе рендериться з <code>&lt;body&gt;</code>. <code>js/body.js</code> реєструє <code>globalHTML5Api.on("load")</code>, оголошує розмір через <code>init({resize:[…]})</code> і виходить через <code>globalHTML5Api.click()</code>. Автопідбір з пріоритетом «тримати різкість» утримав 1:1 у межах 300 КБ.</p>
         <ul class="files">
-          <li><a href="delia-red-300x600/delia-red-300x600.zip">delia-red-300x600.zip</a> <span>— пакет для Admixer: рівно body.html + sprite.jpg, без вкладених тек</span></li>
+          <li><a href="delia-red-300x600/delia-red-300x600.zip">delia-red-300x600.zip</a> <span>— пакет для Admixer: body.html + js/ + images/</span></li>
           <li><a href="delia-red-300x600/body.html">body.html</a> <span>— точка входу; поза Admixer стартує сама й відкривається локально</span></li>
-          <li><a href="delia-red-300x600/sprite.jpg">sprite.jpg</a> <span>— спрайт-аркуш, 20 кадрів</span></li>
+          <li><a href="delia-red-300x600/js/body.js">js/body.js</a> <span>— зчеплення з globalHTML5Api: load, init, click</span></li>
+          <li><a href="delia-red-300x600/js/banner.js">js/banner.js</a> <span>— програвач спрайта, віддає <code>startBanner()</code></span></li>
+          <li><a href="delia-red-300x600/images/sprite.jpg">images/sprite.jpg</a> <span>— спрайт-аркуш, 20 кадрів</span></li>
           <li><a href="delia-red-300x600/backup.jpg">backup.jpg</a> <span>— статичний backup-кадр</span></li>
         </ul>
       </div>

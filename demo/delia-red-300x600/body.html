@@ -1,95 +1,56 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>delia-red-300x600 — 300x600</title>
+<!DOCTYPE html>
+<html>
+<head lang="en">
+  <meta charset="UTF-8">
+  <title>delia-red-300x600 300x600</title>
 </head>
 <body>
-<style>
-html, body { margin: 0; padding: 0; background: transparent; }
-#ad { display:block;position:relative;width:300px;height:600px;overflow:hidden;text-decoration:none;box-sizing:border-box;cursor:pointer;background:#ffffff;border:1px solid #d9d9d9; }
+  <style type="text/css">
+html, body { margin: 0 0 0 0; }
+#container { position:absolute; left:0; top:0; width:300px; height:600px; overflow:hidden; box-sizing:border-box; cursor:pointer; text-decoration:none; background-color:#ffffff; border:1px solid #d9d9d9; }
 #frame {
   position: absolute; left: 0; top: 0; width: 300px; height: 600px;
-  background-image: url(sprite.jpg);
+  background-image: url(images/sprite.jpg);
   background-repeat: no-repeat;
   background-position: 0 0;
   background-size: 2100px 1800px;
 }
-</style>
-<div id="ad" role="link" tabindex="0" aria-label="delia-red-300x600"><div id="frame"></div></div>
-<script>
-(function () {
-  var CLICK_URL = "https://example.com/delia";
-  var FRAMES = 20, COLS = 7, FW = 300, FH = 600, FPS = 10, LOOPS = 3;
-  var el = document.getElementById('frame'), ad = document.getElementById('ad');
-  var idx = 0, loops = 0, acc = 0, prev = 0, raf = 0, step = 1000 / FPS;
-
-  function show(i) {
-    el.style.backgroundPosition = -(i % COLS) * FW + 'px ' + -Math.floor(i / COLS) * FH + 'px';
-  }
-
-  function tick(now) {
-    if (!prev) prev = now;
-    acc += now - prev;
-    prev = now;
-    if (acc > step * 5) acc = step; // a backgrounded tab must not fast-forward
-    while (acc >= step) {
-      acc -= step;
-      if (idx + 1 >= FRAMES) {
-        loops++;
-        if (LOOPS && loops >= LOOPS) { show(FRAMES - 1); raf = 0; return; }
-        idx = 0;
-      } else {
-        idx++;
-      }
-    }
-    show(idx);
-    raf = requestAnimationFrame(tick);
-  }
-
-  function start() {
-    show(0);
-    if (FRAMES > 1) raf = requestAnimationFrame(tick);
-  }
-
-  document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; prev = 0; }
-    else if (!raf && !(LOOPS && loops >= LOOPS)) { raf = requestAnimationFrame(tick); }
-  });
-
-  function exit() {
-    var api = window.globalHTML5Api;
-    if (api && typeof api.click === 'function') { api.click(); return; }
-    window.open(CLICK_URL, '_blank'); // local preview, outside Admixer
-  }
-
-  if (ad) {
-    ad.addEventListener('click', function (e) { e.preventDefault(); exit(); });
-    ad.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); exit(); }
-    });
-  }
-
-  var api = window.globalHTML5Api;
-  if (api && typeof api.on === 'function') { api.on('load', start); } else { start(); }
-
-  var probe = new Image();
-  probe.onerror = function () {
-    cancelAnimationFrame(raf);
-    raf = 0;
-    if (window.console) { console.error('sprite.jpg failed to load next to body.html'); }
-    var host = location.hostname;
-    var local = location.protocol === 'file:' || host === '' || host === 'localhost'
-      || host === '127.0.0.1' || host === '::1' || host === '[::1]';
-    if (!local) { return; }
-    el.style.background = '#fff';
-    el.style.cssText += ';display:flex;align-items:center;justify-content:center;padding:18px;'
-      + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
-    el.textContent = 'Не знайдено sprite.jpg поруч з body.html. '
-      + 'Розпакуйте архів повністю — банер складається з двох файлів. '
-      + '(Missing sprite.jpg: extract the whole archive, do not open body.html from inside the ZIP.)';
+  </style>
+  <div id="container"><div id="frame"></div></div>
+  <script type="text/javascript">
+// Local preview only — inert once Admixer provides the real API.
+if (typeof globalHTML5Api === 'undefined') {
+  window.globalHTML5Api = {
+    on: function (event, handler) {
+      if (event !== 'load') { return; }
+      if (document.readyState === 'complete') { handler(); }
+      else { window.addEventListener('load', handler); }
+    },
+    init: function () {},
+    close: function () {},
+    click: function (url) { window.open(url || "https://example.com/delia", '_blank'); }
   };
-  probe.src = 'sprite.jpg';
+}
+</script>
+<script type="text/javascript" src="js/banner.js"></script>
+<script type="text/javascript" src="js/body.js"></script>
+<script type="text/javascript">
+// Local preview only — reports a partial extraction instead of a blank box.
+(function () {
+  var host = location.hostname;
+  var local = location.protocol === 'file:' || host === '' || host === 'localhost'
+    || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+  if (!local) { return; }
+  window.addEventListener('load', function () {
+    if (window.startBanner) { return; }
+    var el = document.getElementById('frame');
+    if (!el) { return; }
+    el.style.cssText += ';background:#fff;display:flex;align-items:center;justify-content:center;'
+      + 'padding:18px;font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
+    el.textContent = 'Не завантажились js/banner.js та js/body.js поруч з body.html. '
+      + 'Розпакуйте архів повністю, зі збереженням теки js/ та images/. '
+      + '(Sibling scripts missing: extract the whole archive, keeping its folders.)';
+  });
 })();
 </script>
 </body>

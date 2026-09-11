@@ -1,7 +1,7 @@
 import { loadVideo, probeFrameRate, captureFrames } from './extract.js';
 import { packSheet, encode, blobToDataURL, extensionFor, planGrid } from './sprite.js';
 import { createZip, blobBytes, textBytes } from './zip.js';
-import { buildBannerHtml, buildManifest } from './banner.js';
+import { buildCreative, buildManifest } from './banner.js';
 
 const PRESETS = [
   ['source', 'Як у джерелі', 0, 0],
@@ -36,6 +36,7 @@ const PLATFORMS = {
     label: 'Admixer Standard HTML5',
     api: 'admixer',
     entryFile: 'body.html',
+    assetDir: 'images',
     formats: ['image/jpeg', 'image/png'],
     budget: 300, maxFiles: null, maxAnimation: null,
     forcePackaging: 'assets', allowReadme: false,
@@ -315,7 +316,7 @@ async function convert(options) {
   setProgress(0.95, 'Збираю пакет…');
   const ext = extensionFor(o.mime);
   const base = slug(state.file.name);
-  const spriteFile = `sprite.${ext}`;
+  const spriteFile = platform.assetDir ? `${platform.assetDir}/sprite.${ext}` : `sprite.${ext}`;
   const backupFile = `backup.${o.background ? 'jpg' : 'png'}`;
   const entryFile = platform.entryFile;
 
@@ -330,9 +331,9 @@ async function convert(options) {
     platformLabel: platform.label,
   };
 
-  const htmlExternal = buildBannerHtml({ ...shared, spriteUrl: spriteFile, inlineSprite: false });
   const spriteDataUrl = await blobToDataURL(spriteBlob);
-  const htmlInline = buildBannerHtml({ ...shared, spriteUrl: spriteDataUrl, inlineSprite: true });
+  const external = buildCreative({ ...shared, spriteUrl: spriteFile, inlineSprite: false, inlineAll: false });
+  const inline = buildCreative({ ...shared, spriteUrl: spriteDataUrl, inlineSprite: true, inlineAll: true });
 
   // Packaging is the platform's call where it has one. Admixer requires assets
   // as separate files, so a data: URI sprite is not an option there; elsewhere
@@ -343,9 +344,12 @@ async function convert(options) {
     : o.inlineSprite;
 
   const zipEntries = inlineSprite
-    ? [{ name: entryFile, data: textBytes(htmlInline) }]
-    : [{ name: entryFile, data: textBytes(htmlExternal) },
-       { name: spriteFile, data: await blobBytes(spriteBlob) }];
+    ? [{ name: entryFile, data: textBytes(inline.html) }]
+    : [
+      { name: entryFile, data: textBytes(external.html) },
+      ...external.files.map((file) => ({ name: file.name, data: textBytes(file.text) })),
+      { name: spriteFile, data: await blobBytes(spriteBlob) },
+    ];
 
   // A .txt is not in Admixer's allowed file types and would also eat into a
   // 300 KB budget, so the manifest only ships where it is welcome.
@@ -357,12 +361,13 @@ async function convert(options) {
   setProgress(null);
   return {
     ...shared, options: o, inlineSprite, zipFiles: zipEntries.length,
+    zipNames: zipEntries.map((entry) => entry.name),
     spriteBlob, backupBlob, zipBlob,
-    htmlExternal, htmlInline, base,
+    htmlExternal: external.html, htmlInline: inline.html, extraFiles: external.files, base,
     sizes: {
       sprite: spriteBlob.size,
-      entry: new Blob([inlineSprite ? htmlInline : htmlExternal]).size,
-      html: new Blob([htmlInline]).size,
+      entry: new Blob([inlineSprite ? inline.html : external.html]).size,
+      html: new Blob([inline.html]).size,
       zip: zipBlob.size,
       memory: sheet.sheetW * sheet.sheetH * 4,
     },
@@ -474,9 +479,7 @@ function renderChecks(result, zipKb, memoryHeavy) {
 
 /** The platform limit, or the user's own budget when it is stricter. */
 function budgetOf(platform, result) {
-  const chosen = result.options.budget;
-  if (!platform.budget) return chosen || 0;
-  return chosen ? Math.min(chosen, platform.budget) : platform.budget;
+  return result.options.budget || platform.budget || 0;
 }
 
 
@@ -550,7 +553,7 @@ function buildLadder(base) {
 async function autofit() {
   const base = currentOptions();
   const platform = PLATFORMS[base.platform] || PLATFORMS.any;
-  const budget = platform.budget ? Math.min(base.budget || platform.budget, platform.budget) : base.budget;
+  const budget = base.budget || platform.budget;
   if (!budget) {
     await guardedConvert();
     return;

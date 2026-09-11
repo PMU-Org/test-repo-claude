@@ -25,8 +25,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # enablement lets the workflow turn Pages on itself, so the site does not
+      # need a manual visit to Settings -> Pages first.
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       # The site is plain static files — no build step, the repo root is the site.
       - name: Upload artifact

@@ -4,7 +4,9 @@
 в браузері: файл нікуди не завантажується, серверної частини немає — тому
 інструмент і живе на GitHub Pages як статична сторінка.
 
-**Конвертер:** [`index.html`](index.html) · **приклад збірки:** [`demo/`](demo/)
+**Живий тул:** https://pmu-org.github.io/test-repo-claude/ ·
+**приклад збірки:** https://pmu-org.github.io/test-repo-claude/demo/ ·
+**версія в один файл:** [`dist/converter-standalone.html`](dist/converter-standalone.html)
 
 ## Що робить
 
@@ -86,16 +88,9 @@ ZIP пишеться без DEFLATE: усе, що в нього кладетьс
 кроку збірки, бо сайт це статичні файли. Тригериться пушем у default-бранч
 і вручну через **Run workflow**.
 
-Перед першим запуском потрібна одна дія адміністратора репозиторію:
-**Settings → Pages → Source: GitHub Actions**. Автоматично це не робиться —
-`enablement: true` у кроці `configure-pages` б'є в REST-ендпоінт *Create a
-GitHub Pages site*, який вимагає **admin**-прав, а `GITHUB_TOKEN` вище
-`write` не піднімається, тож воркфлоу падає на:
-
-```
-Create Pages site failed. Error: Resource not accessible by integration
-```
-
-Видимість репозиторію тут ні до чого — помилка та сама і на публічному.
-Після перемикача в Settings воркфлоу проходить без жодних змін у коді, і
-сайт стає доступним на `https://pmu-org.github.io/test-repo-claude/`.
+Pages у цьому репозиторії вже увімкнено (**Settings → Pages → Source: GitHub
+Actions**). Якщо форкнути репо, це доведеться зробити ще раз руками:
+воркфлоу не вміє увімкнути Pages сам, бо REST-ендпоінт *Create a GitHub Pages
+site* вимагає **admin**-прав, а `GITHUB_TOKEN` вище `write` не піднімається —
+незалежно від видимості репозиторію. Без цього перший крок падає на
+`Create Pages site failed. Error: Resource not accessible by integration`.

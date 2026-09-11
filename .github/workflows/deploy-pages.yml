@@ -25,12 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # enablement lets the workflow turn Pages on itself, so the site does not
-      # need a manual visit to Settings -> Pages first.
+      # No enablement input: creating a Pages site needs admin rights that
+      # GITHUB_TOKEN does not have, so the site is enabled once in Settings
+      # and this step just reads it.
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       # The site is plain static files — no build step, the repo root is the site.
       - name: Upload artifact

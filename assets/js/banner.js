@@ -52,7 +52,33 @@ const PLAYER = `(function () {
       window.open(window.clickTag, '_blank');
     });
   }
+%SPRITE_GUARD%
 })();`;
+
+/**
+ * A missing sprite otherwise renders as a silent white box — the failure you
+ * get by opening index.html straight out of a ZIP viewer, which extracts only
+ * the file you clicked. Say so, but only while previewing locally: a served
+ * creative must never show diagnostics to an actual viewer.
+ */
+const SPRITE_GUARD = `
+  var probe = new Image();
+  probe.onerror = function () {
+    cancelAnimationFrame(raf);
+    raf = 0;
+    if (window.console) { console.error('%SPRITE_FILE% failed to load next to index.html'); }
+    var host = location.hostname;
+    var local = location.protocol === 'file:' || host === '' || host === 'localhost'
+      || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+    if (!local) { return; }
+    el.style.background = '#fff';
+    el.style.cssText += ';display:flex;align-items:center;justify-content:center;padding:18px;'
+      + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
+    el.textContent = 'Не знайдено %SPRITE_FILE% поруч з index.html. '
+      + 'Розпакуйте архів повністю — банер складається з двох файлів. '
+      + '(Missing %SPRITE_FILE%: extract the whole archive, do not open index.html from inside the ZIP.)';
+  };
+  probe.src = '%SPRITE_FILE%';`;
 
 function escapeAttr(value) {
   return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -70,7 +96,7 @@ function escapeJsString(value) {
 export function buildBannerHtml(cfg) {
   const {
     name, width, height, frames, cols, fps, loops,
-    spriteUrl, clickUrl, border, borderColor, background,
+    spriteUrl, spriteFile, inlineSprite, clickUrl, border, borderColor, background,
   } = cfg;
 
   // The sheet may be encoded below 1:1 to save bytes, so background-size is
@@ -79,7 +105,9 @@ export function buildBannerHtml(cfg) {
   const bgW = cols * width;
   const bgH = rows * height;
 
+  const guard = inlineSprite ? '' : SPRITE_GUARD.split('%SPRITE_FILE%').join(spriteFile);
   const player = PLAYER
+    .replace('%SPRITE_GUARD%', guard)
     .replace(/%%/g, '%')
     .replace('%FRAMES%', frames)
     .replace('%COLS%', cols)
@@ -141,14 +169,21 @@ Source            ${cfg.sourceName}
 Frames            ${cfg.frames} (${cfg.cols} cols x ${Math.ceil(cfg.frames / cfg.cols)} rows)
 Frame rate        ${cfg.fps} fps
 Animation length  ${seconds} s x ${cfg.loops === 0 ? 'infinite' : cfg.loops} loop(s)
-Sprite sheet      ${cfg.spriteFile} — ${cfg.sheetW}x${cfg.sheetH} px (${Math.round(cfg.scale * 100)}% of display size)
-Backup image      ${cfg.backupFile}
+Sprite sheet      ${cfg.inlineSprite ? 'embedded' : cfg.spriteFile} — ${cfg.sheetW}x${cfg.sheetH} px (${Math.round(cfg.scale * 100)}% of display size)
+Packaging         ${cfg.inlineSprite ? 'single file, sprite embedded as a data: URI' : 'index.html plus a separate sprite file'}
+Backup image      ${cfg.backupFile} — downloaded separately, not in this ZIP
 Click-through     ${cfg.clickUrl}
 
 Files
-  index.html      the creative; entry point for the ad server
+${cfg.inlineSprite
+  ? `  index.html      the complete creative; the sprite sheet is embedded in it,
+                  so this one file is the whole banner`
+  : `  index.html      the creative; entry point for the ad server
   ${cfg.spriteFile.padEnd(15)} sprite sheet with every frame
-  ${cfg.backupFile.padEnd(15)} static backup image (single frame)
+
+  IMPORTANT: index.html and ${cfg.spriteFile} must stay together. Opening
+  index.html straight out of a ZIP viewer extracts only that one file and the
+  banner renders blank — extract the whole archive first.`}
 
 Notes
   - index.html declares <meta name="ad.size"> and a global clickTag variable,
@@ -156,7 +191,9 @@ Notes
     dimensions and the exit URL automatically.
   - The animation stops on its last frame after the loop budget is spent and
     pauses while the tab is hidden.
-  - Keep index.html and the sprite in the same folder; upload the ZIP as-is.
+  - ${cfg.inlineSprite
+      ? 'Everything is in index.html, so the banner cannot be broken by a\n    partial extraction. Upload the ZIP as-is.'
+      : 'Keep index.html and the sprite in the same folder; upload the ZIP as-is.'}
 
 Generated with WebM -> HTML5 Banner Converter.
 `;

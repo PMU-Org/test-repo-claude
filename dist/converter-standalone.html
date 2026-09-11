@@ -330,6 +330,12 @@ footer p { margin: 0; }
 
       <fieldset>
         <legend>Рекламна обгортка</legend>
+        <label>Пакування
+          <select id="opt-packaging">
+            <option value="inline" selected>Один index.html — спрайт усередині</option>
+            <option value="assets">index.html + спрайт окремо — на ~33% легше</option>
+          </select>
+        </label>
         <label>clickTag / цільовий URL
           <input type="url" id="opt-click" placeholder="https://example.com/landing" value="https://example.com/">
         </label>
@@ -800,7 +806,33 @@ const PLAYER = `(function () {
       window.open(window.clickTag, '_blank');
     });
   }
+%SPRITE_GUARD%
 })();`;
+
+/**
+ * A missing sprite otherwise renders as a silent white box — the failure you
+ * get by opening index.html straight out of a ZIP viewer, which extracts only
+ * the file you clicked. Say so, but only while previewing locally: a served
+ * creative must never show diagnostics to an actual viewer.
+ */
+const SPRITE_GUARD = `
+  var probe = new Image();
+  probe.onerror = function () {
+    cancelAnimationFrame(raf);
+    raf = 0;
+    if (window.console) { console.error('%SPRITE_FILE% failed to load next to index.html'); }
+    var host = location.hostname;
+    var local = location.protocol === 'file:' || host === '' || host === 'localhost'
+      || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+    if (!local) { return; }
+    el.style.background = '#fff';
+    el.style.cssText += ';display:flex;align-items:center;justify-content:center;padding:18px;'
+      + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
+    el.textContent = 'Не знайдено %SPRITE_FILE% поруч з index.html. '
+      + 'Розпакуйте архів повністю — банер складається з двох файлів. '
+      + '(Missing %SPRITE_FILE%: extract the whole archive, do not open index.html from inside the ZIP.)';
+  };
+  probe.src = '%SPRITE_FILE%';`;
 
 function escapeAttr(value) {
   return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -818,7 +850,7 @@ function escapeJsString(value) {
 function buildBannerHtml(cfg) {
   const {
     name, width, height, frames, cols, fps, loops,
-    spriteUrl, clickUrl, border, borderColor, background,
+    spriteUrl, spriteFile, inlineSprite, clickUrl, border, borderColor, background,
   } = cfg;
 
   // The sheet may be encoded below 1:1 to save bytes, so background-size is
@@ -827,7 +859,9 @@ function buildBannerHtml(cfg) {
   const bgW = cols * width;
   const bgH = rows * height;
 
+  const guard = inlineSprite ? '' : SPRITE_GUARD.split('%SPRITE_FILE%').join(spriteFile);
   const player = PLAYER
+    .replace('%SPRITE_GUARD%', guard)
     .replace(/%%/g, '%')
     .replace('%FRAMES%', frames)
     .replace('%COLS%', cols)
@@ -889,14 +923,21 @@ Source            ${cfg.sourceName}
 Frames            ${cfg.frames} (${cfg.cols} cols x ${Math.ceil(cfg.frames / cfg.cols)} rows)
 Frame rate        ${cfg.fps} fps
 Animation length  ${seconds} s x ${cfg.loops === 0 ? 'infinite' : cfg.loops} loop(s)
-Sprite sheet      ${cfg.spriteFile} — ${cfg.sheetW}x${cfg.sheetH} px (${Math.round(cfg.scale * 100)}% of display size)
-Backup image      ${cfg.backupFile}
+Sprite sheet      ${cfg.inlineSprite ? 'embedded' : cfg.spriteFile} — ${cfg.sheetW}x${cfg.sheetH} px (${Math.round(cfg.scale * 100)}% of display size)
+Packaging         ${cfg.inlineSprite ? 'single file, sprite embedded as a data: URI' : 'index.html plus a separate sprite file'}
+Backup image      ${cfg.backupFile} — downloaded separately, not in this ZIP
 Click-through     ${cfg.clickUrl}
 
 Files
-  index.html      the creative; entry point for the ad server
+${cfg.inlineSprite
+  ? `  index.html      the complete creative; the sprite sheet is embedded in it,
+                  so this one file is the whole banner`
+  : `  index.html      the creative; entry point for the ad server
   ${cfg.spriteFile.padEnd(15)} sprite sheet with every frame
-  ${cfg.backupFile.padEnd(15)} static backup image (single frame)
+
+  IMPORTANT: index.html and ${cfg.spriteFile} must stay together. Opening
+  index.html straight out of a ZIP viewer extracts only that one file and the
+  banner renders blank — extract the whole archive first.`}
 
 Notes
   - index.html declares <meta name="ad.size"> and a global clickTag variable,
@@ -904,7 +945,9 @@ Notes
     dimensions and the exit URL automatically.
   - The animation stops on its last frame after the loop budget is spent and
     pauses while the tab is hidden.
-  - Keep index.html and the sprite in the same folder; upload the ZIP as-is.
+  - ${cfg.inlineSprite
+      ? 'Everything is in index.html, so the banner cannot be broken by a\n    partial extraction. Upload the ZIP as-is.'
+      : 'Keep index.html and the sprite in the same folder; upload the ZIP as-is.'}
 
 Generated with WebM -> HTML5 Banner Converter.
 `;
@@ -976,7 +1019,8 @@ const el = {
   fps: $('opt-fps'), start: $('opt-start'), end: $('opt-end'), loops: $('opt-loops'),
   format: $('opt-format'), quality: $('opt-quality'), qOut: $('q-out'), scale: $('opt-scale'),
   transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
-  click: $('opt-click'), border: $('opt-border'), borderColor: $('opt-border-color'),
+  click: $('opt-click'), packaging: $('opt-packaging'),
+  border: $('opt-border'), borderColor: $('opt-border-color'),
   backup: $('opt-backup'), bkOut: $('bk-out'),
   budget: $('opt-budget'), platform: $('opt-platform'), platformNote: $('platform-note'),
   priority: $('opt-priority'), autofit: $('btn-autofit'), convert: $('btn-convert'),
@@ -990,6 +1034,16 @@ const state = { file: null, url: null, video: null, meta: null, result: null, bu
 /* ── helpers ──────────────────────────────────────────────────────── */
 
 const kb = (bytes) => `${(bytes / 1024).toFixed(1)} КБ`;
+
+/** Ukrainian counts take three forms: 1 спробу, 2-4 спроби, 5+ спроб. */
+function plural(n, one, few, many) {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  const mod10 = n % 10;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function setProgress(fraction, text) {
@@ -1138,6 +1192,7 @@ function currentOptions() {
     borderColor: el.borderColor.value,
     budget: Number(el.budget.value),
     platform: el.platform.value,
+    inlineSprite: el.packaging.value === 'inline',
   };
 }
 
@@ -1195,15 +1250,19 @@ async function convert(options) {
     spriteFile, backupFile,
   };
 
-  const htmlExternal = buildBannerHtml({ ...shared, spriteUrl: spriteFile });
+  const htmlExternal = buildBannerHtml({ ...shared, spriteUrl: spriteFile, inlineSprite: false });
   const spriteDataUrl = await blobToDataURL(spriteBlob);
-  const htmlInline = buildBannerHtml({ ...shared, spriteUrl: spriteDataUrl });
+  const htmlInline = buildBannerHtml({ ...shared, spriteUrl: spriteDataUrl, inlineSprite: true });
 
-  const zipBlob = createZip([
-    { name: 'index.html', data: textBytes(htmlExternal) },
-    { name: spriteFile, data: await blobBytes(spriteBlob) },
-    { name: 'README.txt', data: textBytes(buildManifest(shared)) },
-  ]);
+  // Default packaging puts the sprite inside index.html. It costs ~33% in
+  // base64 overhead and buys a creative that cannot be broken by a partial
+  // extraction — the failure that renders as a silent white box.
+  const zipEntries = o.inlineSprite
+    ? [{ name: 'index.html', data: textBytes(htmlInline) }]
+    : [{ name: 'index.html', data: textBytes(htmlExternal) },
+       { name: spriteFile, data: await blobBytes(spriteBlob) }];
+  zipEntries.push({ name: 'README.txt', data: textBytes(buildManifest({ ...shared, inlineSprite: o.inlineSprite })) });
+  const zipBlob = createZip(zipEntries);
 
   setProgress(null);
   return {
@@ -1269,7 +1328,8 @@ function renderChecks(result, zipKb, memoryHeavy) {
   }
 
   if (platform.maxFiles) {
-    items.push(['ok', `${ZIP_FILE_COUNT} файли в архіві — ліміт ${platform.label}: ${platform.maxFiles}.`]);
+    const count = zipFileCount(result);
+    items.push(['ok', `${count} ${plural(count, 'файл', 'файли', 'файлів')} в архіві — ліміт ${platform.label}: ${platform.maxFiles}.`]);
   }
 
   if (platform.maxAnimation) {
@@ -1311,7 +1371,7 @@ function budgetOf(platform, result) {
   return chosen ? Math.min(chosen, platform.budget) : platform.budget;
 }
 
-const ZIP_FILE_COUNT = 3; // index.html + sprite + README.txt
+const zipFileCount = (result) => (result.options.inlineSprite ? 2 : 3); // README.txt always rides along
 
 function renderPreview() {
   if (!state.result) return;
@@ -1416,7 +1476,7 @@ async function autofit() {
     if (result.sizes.zip / 1024 <= budget) {
       applyCandidate(candidate);
       showResult(result);
-      const summary = `Підібрано за ${tried} спроб${tried === 1 ? 'у' : 'и'}: `
+      const summary = `Підібрано за ${tried} ${plural(tried, 'спробу', 'спроби', 'спроб')}: `
         + `${Math.round(candidate.scale * 100)}% роздільності, ${candidate.fps} fps, якість ${candidate.quality} — ZIP ${kb(result.sizes.zip)}.`;
       el.verdict.textContent = `${summary} ${el.verdict.textContent}`.trim();
       setProgress(null);
@@ -1515,6 +1575,10 @@ function applyPlatform({ resetBudget = true } = {}) {
 }
 
 el.platform.addEventListener('change', () => applyPlatform());
+el.packaging.addEventListener('change', () => {
+  el.convert.textContent = 'Конвертувати';
+  estimate();
+});
 el.format.addEventListener('change', () => applyPlatform({ resetBudget: false }));
 
 el.preset.addEventListener('change', () => {

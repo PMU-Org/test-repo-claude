@@ -122,6 +122,12 @@
 
       <fieldset>
         <legend>Рекламна обгортка</legend>
+        <label>Пакування
+          <select id="opt-packaging">
+            <option value="inline" selected>Один index.html — спрайт усередині</option>
+            <option value="assets">index.html + спрайт окремо — на ~33% легше</option>
+          </select>
+        </label>
         <label>clickTag / цільовий URL
           <input type="url" id="opt-click" placeholder="https://example.com/landing" value="https://example.com/">
         </label>

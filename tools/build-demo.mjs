@@ -9,6 +9,8 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const PORT = Number(process.argv[process.argv.indexOf('--port') + 1]) || 8123;
@@ -86,10 +88,12 @@ console.log('result:', {
 
 await rm(OUT, { recursive: true, force: true });
 await mkdir(OUT, { recursive: true });
-await writeFile(join(OUT, 'index.html'), payload.htmlExternal);
+// index.html is the self-contained build — the same bytes the ZIP carries —
+// so the demo folder behaves exactly like what a user downloads.
+await writeFile(join(OUT, 'index.html'), payload.htmlInline);
 await writeFile(join(OUT, payload.spriteFile), Buffer.from(payload.sprite, 'base64'));
 await writeFile(join(OUT, payload.backupFile), Buffer.from(payload.backup, 'base64'));
-await writeFile(join(OUT, 'banner-inline.html'), payload.htmlInline);
+await writeFile(join(OUT, 'index-with-separate-sprite.html'), payload.htmlExternal);
 await writeFile(join(OUT, `delia-red-${payload.width}x${payload.height}.zip`), Buffer.from(payload.zip, 'base64'));
 
 // Verify the written banner actually animates: sample the sprite offset over time.
@@ -129,6 +133,48 @@ if (!payload.spriteFile.endsWith('.jpg') && !payload.spriteFile.endsWith('.png')
 const blocking = await page.locator('#r-checks li.bad').count();
 console.log('blocking compliance checks:', blocking);
 if (blocking) problems.push(`${blocking} blocking compliance check(s) on the demo build`);
+
+// The regression that matters most: index.html moved somewhere on its own,
+// opened over file://, must still render the creative rather than a blank box.
+const solo = join(tmpdir(), `banner-solo-${Date.now()}`);
+await mkdir(solo, { recursive: true });
+await writeFile(join(solo, 'index.html'), payload.htmlInline);
+const alone = await browser.newPage({ viewport: { width: 400, height: 700 } });
+await alone.goto(pathToFileURL(join(solo, 'index.html')).href);
+await alone.waitForSelector('#frame');
+const render = await alone.evaluate(async () => {
+  const el = document.getElementById('frame');
+  const url = getComputedStyle(el).backgroundImage.slice(5, -2).replace(/^"|"$/g, '');
+  const img = new Image();
+  const ok = await new Promise((res) => { img.onload = () => res(true); img.onerror = () => res(false); img.src = url; });
+  if (!ok) return { ok: false };
+  const canvas = document.createElement('canvas');
+  canvas.width = 60; canvas.height = 120;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, 300, 600, 0, 0, 60, 120);
+  const data = ctx.getImageData(0, 0, 60, 120).data;
+  let min = 255, max = 0;
+  for (let i = 0; i < data.length; i += 4) { if (data[i] < min) min = data[i]; if (data[i] > max) max = data[i]; }
+  return { ok: true, scheme: url.slice(0, 5), naturalWidth: img.naturalWidth, contrast: max - min };
+});
+console.log('standalone index.html over file://:', render);
+if (!render.ok) problems.push('standalone index.html could not load its sprite');
+else if (render.contrast < 30) problems.push('standalone index.html renders a flat/blank frame');
+await alone.close();
+await rm(solo, { recursive: true, force: true });
+
+// And the separate-sprite build must explain itself rather than go white.
+const orphanDir = join(tmpdir(), `banner-orphan-${Date.now()}`);
+await mkdir(orphanDir, { recursive: true });
+await writeFile(join(orphanDir, 'index.html'), payload.htmlExternal);
+const orphan = await browser.newPage({ viewport: { width: 400, height: 700 } });
+await orphan.goto(pathToFileURL(join(orphanDir, 'index.html')).href);
+await orphan.waitForTimeout(600);
+const notice = (await orphan.locator('#frame').innerText()).trim();
+console.log('orphaned index.html shows:', JSON.stringify(notice.slice(0, 60) + '…'));
+if (!notice) problems.push('orphaned index.html still renders silently blank');
+await orphan.close();
+await rm(orphanDir, { recursive: true, force: true });
 
 await browser.close();
 server.close();

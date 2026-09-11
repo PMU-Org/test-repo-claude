@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ad.size" content="width=300,height=600">
+<title>delia-red-300x600 — 300x600</title>
+<style>
+html, body { margin: 0; padding: 0; background: transparent; }
+#ad { display:block;position:relative;width:300px;height:600px;overflow:hidden;text-decoration:none;box-sizing:border-box;cursor:pointer;background:#ffffff;border:1px solid #d9d9d9; }
+#frame {
+  position: absolute; left: 0; top: 0; width: 300px; height: 600px;
+  background-image: url(sprite.jpg);
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 2100px 2400px;
+}
+</style>
+</head>
+<body>
+<a id="ad" href="https://example.com/delia" target="_blank" rel="noopener noreferrer" aria-label="delia-red-300x600"><div id="frame"></div></a>
+<script>
+var clickTag = "https://example.com/delia";
+(function () {
+  var FRAMES = 24, COLS = 7, FW = 300, FH = 600, FPS = 12, LOOPS = 3;
+  var el = document.getElementById('frame'), ad = document.getElementById('ad');
+  var idx = 0, loops = 0, acc = 0, prev = 0, raf = 0, step = 1000 / FPS;
+
+  function show(i) {
+    el.style.backgroundPosition = -(i % COLS) * FW + 'px ' + -Math.floor(i / COLS) * FH + 'px';
+  }
+
+  function tick(now) {
+    if (!prev) prev = now;
+    acc += now - prev;
+    prev = now;
+    if (acc > step * 5) acc = step; // a backgrounded tab must not fast-forward
+    while (acc >= step) {
+      acc -= step;
+      if (idx + 1 >= FRAMES) {
+        loops++;
+        if (LOOPS && loops >= LOOPS) { show(FRAMES - 1); raf = 0; return; }
+        idx = 0;
+      } else {
+        idx++;
+      }
+    }
+    show(idx);
+    raf = requestAnimationFrame(tick);
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { cancelAnimationFrame(raf); raf = 0; prev = 0; }
+    else if (!raf && !(LOOPS && loops >= LOOPS)) { raf = requestAnimationFrame(tick); }
+  });
+
+  show(0);
+  if (FRAMES > 1) raf = requestAnimationFrame(tick);
+
+  if (ad) {
+    ad.href = window.clickTag || '#';
+    ad.addEventListener('click', function (e) {
+      e.preventDefault();
+      window.open(window.clickTag, '_blank');
+    });
+  }
+
+  var probe = new Image();
+  probe.onerror = function () {
+    cancelAnimationFrame(raf);
+    raf = 0;
+    if (window.console) { console.error('sprite.jpg failed to load next to index.html'); }
+    var host = location.hostname;
+    var local = location.protocol === 'file:' || host === '' || host === 'localhost'
+      || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+    if (!local) { return; }
+    el.style.background = '#fff';
+    el.style.cssText += ';display:flex;align-items:center;justify-content:center;padding:18px;'
+      + 'font:12px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;color:#c1121f;text-align:center';
+    el.textContent = 'Не знайдено sprite.jpg поруч з index.html. '
+      + 'Розпакуйте архів повністю — банер складається з двох файлів. '
+      + '(Missing sprite.jpg: extract the whole archive, do not open index.html from inside the ZIP.)';
+  };
+  probe.src = 'sprite.jpg';
+})();
+</script>
+</body>
+</html>

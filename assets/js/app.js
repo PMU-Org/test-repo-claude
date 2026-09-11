@@ -67,7 +67,8 @@ const el = {
   fps: $('opt-fps'), start: $('opt-start'), end: $('opt-end'), loops: $('opt-loops'),
   format: $('opt-format'), quality: $('opt-quality'), qOut: $('q-out'), scale: $('opt-scale'),
   transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
-  click: $('opt-click'), border: $('opt-border'), borderColor: $('opt-border-color'),
+  click: $('opt-click'), packaging: $('opt-packaging'),
+  border: $('opt-border'), borderColor: $('opt-border-color'),
   backup: $('opt-backup'), bkOut: $('bk-out'),
   budget: $('opt-budget'), platform: $('opt-platform'), platformNote: $('platform-note'),
   priority: $('opt-priority'), autofit: $('btn-autofit'), convert: $('btn-convert'),
@@ -81,6 +82,16 @@ const state = { file: null, url: null, video: null, meta: null, result: null, bu
 /* ── helpers ──────────────────────────────────────────────────────── */
 
 const kb = (bytes) => `${(bytes / 1024).toFixed(1)} КБ`;
+
+/** Ukrainian counts take three forms: 1 спробу, 2-4 спроби, 5+ спроб. */
+function plural(n, one, few, many) {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  const mod10 = n % 10;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+}
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function setProgress(fraction, text) {
@@ -229,6 +240,7 @@ function currentOptions() {
     borderColor: el.borderColor.value,
     budget: Number(el.budget.value),
     platform: el.platform.value,
+    inlineSprite: el.packaging.value === 'inline',
   };
 }
 
@@ -286,15 +298,19 @@ async function convert(options) {
     spriteFile, backupFile,
   };
 
-  const htmlExternal = buildBannerHtml({ ...shared, spriteUrl: spriteFile });
+  const htmlExternal = buildBannerHtml({ ...shared, spriteUrl: spriteFile, inlineSprite: false });
   const spriteDataUrl = await blobToDataURL(spriteBlob);
-  const htmlInline = buildBannerHtml({ ...shared, spriteUrl: spriteDataUrl });
+  const htmlInline = buildBannerHtml({ ...shared, spriteUrl: spriteDataUrl, inlineSprite: true });
 
-  const zipBlob = createZip([
-    { name: 'index.html', data: textBytes(htmlExternal) },
-    { name: spriteFile, data: await blobBytes(spriteBlob) },
-    { name: 'README.txt', data: textBytes(buildManifest(shared)) },
-  ]);
+  // Default packaging puts the sprite inside index.html. It costs ~33% in
+  // base64 overhead and buys a creative that cannot be broken by a partial
+  // extraction — the failure that renders as a silent white box.
+  const zipEntries = o.inlineSprite
+    ? [{ name: 'index.html', data: textBytes(htmlInline) }]
+    : [{ name: 'index.html', data: textBytes(htmlExternal) },
+       { name: spriteFile, data: await blobBytes(spriteBlob) }];
+  zipEntries.push({ name: 'README.txt', data: textBytes(buildManifest({ ...shared, inlineSprite: o.inlineSprite })) });
+  const zipBlob = createZip(zipEntries);
 
   setProgress(null);
   return {
@@ -360,7 +376,8 @@ function renderChecks(result, zipKb, memoryHeavy) {
   }
 
   if (platform.maxFiles) {
-    items.push(['ok', `${ZIP_FILE_COUNT} файли в архіві — ліміт ${platform.label}: ${platform.maxFiles}.`]);
+    const count = zipFileCount(result);
+    items.push(['ok', `${count} ${plural(count, 'файл', 'файли', 'файлів')} в архіві — ліміт ${platform.label}: ${platform.maxFiles}.`]);
   }
 
   if (platform.maxAnimation) {
@@ -402,7 +419,7 @@ function budgetOf(platform, result) {
   return chosen ? Math.min(chosen, platform.budget) : platform.budget;
 }
 
-const ZIP_FILE_COUNT = 3; // index.html + sprite + README.txt
+const zipFileCount = (result) => (result.options.inlineSprite ? 2 : 3); // README.txt always rides along
 
 function renderPreview() {
   if (!state.result) return;
@@ -507,7 +524,7 @@ async function autofit() {
     if (result.sizes.zip / 1024 <= budget) {
       applyCandidate(candidate);
       showResult(result);
-      const summary = `Підібрано за ${tried} спроб${tried === 1 ? 'у' : 'и'}: `
+      const summary = `Підібрано за ${tried} ${plural(tried, 'спробу', 'спроби', 'спроб')}: `
         + `${Math.round(candidate.scale * 100)}% роздільності, ${candidate.fps} fps, якість ${candidate.quality} — ZIP ${kb(result.sizes.zip)}.`;
       el.verdict.textContent = `${summary} ${el.verdict.textContent}`.trim();
       setProgress(null);
@@ -625,6 +642,10 @@ function applyPlatform({ resetBudget = true } = {}) {
 }
 
 el.platform.addEventListener('change', () => applyPlatform());
+el.packaging.addEventListener('change', () => {
+  el.convert.textContent = 'Конвертувати';
+  estimate();
+});
 el.format.addEventListener('change', () => applyPlatform({ resetBudget: false }));
 
 el.preset.addEventListener('change', () => {

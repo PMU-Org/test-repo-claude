@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebM → HTML5 Banner Converter</title>
+<meta name="description" content="Клієнтський конвертер WebM (VP8/VP9, з альфа-каналом) у самодостатній HTML5-баннер зі спрайт-аркушем, clickTag і ZIP-пакетом для Google Ads / DV360.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e4322b'/%3E%3Cpath d='M8 11h4l2 7 2-7h4l2 7 2-7h0' stroke='%23fff' stroke-width='2.4' fill='none' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">▶</span>
+    <div>
+      <h1>WebM&nbsp;→&nbsp;HTML5 Banner</h1>
+      <p class="tagline">Конвертер відео-креативів у спрайтовий HTML5-баннер. Усе працює локально в браузері — файли нікуди не завантажуються.</p>
+    </div>
+  </div>
+  <nav class="links">
+    <a class="ghlink" href="demo/">Приклад збірки</a>
+    <a class="ghlink" href="https://github.com/PMU-Org/test-repo-claude" target="_blank" rel="noopener">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <!-- ───────────── 1. Джерело ───────────── -->
+  <section class="card" id="step-source">
+    <h2><span class="num">1</span> Джерело</h2>
+
+    <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Обрати WebM-файл">
+      <svg viewBox="0 0 24 24" class="dz-icon" aria-hidden="true"><path d="M12 16V4m0 0L8 8m4-4 4 4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      <p class="dz-main">Перетягніть <b>.webm</b> сюди або натисніть, щоб обрати</p>
+      <p class="dz-sub">Підтримується VP8/VP9, у т.ч. з альфа-каналом. Також читає .mp4/.mov, якщо браузер їх декодує.</p>
+      <button type="button" class="btn ghost" id="btn-sample">Завантажити зразок 300×600</button>
+      <input type="file" id="file-input" accept="video/webm,video/mp4,video/quicktime,video/*" hidden>
+    </div>
+
+    <div id="source-info" class="hidden">
+      <dl class="meta">
+        <div><dt>Файл</dt><dd id="m-name">—</dd></div>
+        <div><dt>Розмір</dt><dd id="m-size">—</dd></div>
+        <div><dt>Роздільність</dt><dd id="m-dim">—</dd></div>
+        <div><dt>Тривалість</dt><dd id="m-dur">—</dd></div>
+        <div><dt>Частота кадрів</dt><dd id="m-fps">—</dd></div>
+        <div><dt>Альфа-канал</dt><dd id="m-alpha">—</dd></div>
+      </dl>
+      <p class="hint" id="source-warn"></p>
+    </div>
+  </section>
+
+  <!-- ───────────── 2. Налаштування ───────────── -->
+  <section class="card" id="step-settings" aria-disabled="true">
+    <h2><span class="num">2</span> Налаштування баннера</h2>
+
+    <div class="grid">
+      <fieldset>
+        <legend>Геометрія</legend>
+        <label>Розмір баннера
+          <select id="opt-preset"></select>
+        </label>
+        <div class="row">
+          <label>Ширина <input type="number" id="opt-w" min="16" max="4096" step="1"></label>
+          <label>Висота <input type="number" id="opt-h" min="16" max="4096" step="1"></label>
+        </div>
+        <label class="check"><input type="checkbox" id="opt-ratio" checked> Зберігати пропорції джерела</label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Анімація</legend>
+        <label>Частота кадрів (fps)
+          <select id="opt-fps">
+            <option value="0">Як у джерелі</option>
+            <option value="25">25</option>
+            <option value="24">24</option>
+            <option value="20">20</option>
+            <option value="15" selected>15 — рекомендовано</option>
+            <option value="12">12</option>
+            <option value="10">10</option>
+            <option value="8">8</option>
+          </select>
+        </label>
+        <div class="row">
+          <label>Обрізка, від (с) <input type="number" id="opt-start" min="0" step="0.01" value="0"></label>
+          <label>до (с) <input type="number" id="opt-end" min="0" step="0.01"></label>
+        </div>
+        <label>Повтори
+          <select id="opt-loops">
+            <option value="1">1 раз</option>
+            <option value="2">2 рази</option>
+            <option value="3" selected>3 рази (ліміт IAB/GDN)</option>
+            <option value="0">Безкінечно</option>
+          </select>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Спрайт</legend>
+        <label>Формат
+          <select id="opt-format">
+            <option value="image/webp" selected>WebP — найменший, з альфою</option>
+            <option value="image/png">PNG — lossless, з альфою</option>
+            <option value="image/jpeg">JPEG — без альфи</option>
+          </select>
+        </label>
+        <label>Якість <output id="q-out">80</output>
+          <input type="range" id="opt-quality" min="20" max="100" step="1" value="80">
+        </label>
+        <label>Роздільність спрайта
+          <select id="opt-scale">
+            <option value="1" selected>100% — 1:1, найрізкіше</option>
+            <option value="0.85">85%</option>
+            <option value="0.75">75%</option>
+            <option value="0.6">60%</option>
+            <option value="0.5">50% — найлегше</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="opt-transparent" checked> Прозорий фон</label>
+        <label id="wrap-bg" class="hidden">Колір фону <input type="color" id="opt-bg" value="#ffffff"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Рекламна обгортка</legend>
+        <label>clickTag / цільовий URL
+          <input type="url" id="opt-click" placeholder="https://example.com/landing" value="https://example.com/">
+        </label>
+        <label class="check"><input type="checkbox" id="opt-border" checked> Рамка 1&nbsp;px</label>
+        <label id="wrap-border">Колір рамки <input type="color" id="opt-border-color" value="#d9d9d9"></label>
+        <label>Кадр для backup-зображення <output id="bk-out">1</output>
+          <input type="range" id="opt-backup" min="1" max="1" step="1" value="1">
+        </label>
+      </fieldset>
+    </div>
+
+    <div class="budget">
+      <label>Бюджет розміру
+        <select id="opt-budget">
+          <option value="150">150 КБ — Google Ads / IAB</option>
+          <option value="200">200 КБ</option>
+          <option value="500" selected>500 КБ</option>
+          <option value="0">Без обмежень</option>
+        </select>
+      </label>
+      <label>Чим жертвувати першим
+        <select id="opt-priority">
+          <option value="sharpness" selected>Тримати різкість — ріжемо fps</option>
+          <option value="smoothness">Тримати плавність — ріжемо роздільність</option>
+          <option value="balanced">Баланс</option>
+        </select>
+      </label>
+      <button type="button" class="btn" id="btn-autofit" title="Підбирає роздільність, fps і якість, щоб вкластися в бюджет">Підібрати під бюджет</button>
+    </div>
+    <p class="hint">Дрібний текст — юридичні дисклеймери, легальні позначки — «розсипається» вже на 75% роздільності. Якщо він є в кадрі, тримайте різкість.</p>
+
+    <div class="actions">
+      <button type="button" class="btn primary" id="btn-convert" disabled>Конвертувати</button>
+      <div class="progress hidden" id="progress"><div class="bar" id="progress-bar"></div><span id="progress-label"></span></div>
+    </div>
+  </section>
+
+  <!-- ───────────── 3. Результат ───────────── -->
+  <section class="card hidden" id="step-result">
+    <h2><span class="num">3</span> Результат</h2>
+
+    <div class="result-grid">
+      <div class="preview-col">
+        <div class="preview-head">
+          <span>Перегляд</span>
+          <div class="preview-tools">
+            <button type="button" class="btn tiny" id="btn-replay">↻ Повторити</button>
+            <label class="check tiny"><input type="checkbox" id="opt-checker" checked> Шахівниця</label>
+          </div>
+        </div>
+        <div class="stage" id="stage"><iframe id="preview" title="Перегляд баннера" sandbox="allow-scripts"></iframe></div>
+      </div>
+
+      <div class="export-col">
+        <dl class="meta stats">
+          <div><dt>Кадрів</dt><dd id="r-frames">—</dd></div>
+          <div><dt>Спрайт</dt><dd id="r-sheet">—</dd></div>
+          <div><dt>Спрайт, вага</dt><dd id="r-sprite">—</dd></div>
+          <div><dt>Один HTML</dt><dd id="r-html">—</dd></div>
+          <div><dt>ZIP-пакет</dt><dd id="r-zip">—</dd></div>
+          <div><dt>Пам'ять на декод</dt><dd id="r-mem">—</dd></div>
+        </dl>
+        <p class="hint" id="r-verdict"></p>
+
+        <div class="downloads">
+          <button type="button" class="btn primary" id="dl-zip">⤓ ZIP для Google&nbsp;Ads</button>
+          <button type="button" class="btn" id="dl-html">⤓ Один файл index.html</button>
+          <button type="button" class="btn" id="dl-sprite">⤓ Спрайт</button>
+          <button type="button" class="btn" id="dl-backup">⤓ Backup .png</button>
+        </div>
+
+        <details class="code">
+          <summary>Код баннера</summary>
+          <pre><code id="code-out"></code></pre>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section class="card notes">
+    <h2>Як це працює</h2>
+    <ol>
+      <li>Кадри знімаються з відео покадровим seek у <code>&lt;canvas&gt;</code> — без перекодування на сервері, альфа-канал VP9 зберігається.</li>
+      <li>Кадри пакуються в один спрайт-аркуш (сітка, близька до квадрата, до 16&nbsp;383&nbsp;px по стороні).</li>
+      <li>Баннер анімує <code>background-position</code> через <code>requestAnimationFrame</code> з накопиченням часу — без дрейфу fps, з паузою на невидимій вкладці та зупинкою на останньому кадрі.</li>
+      <li>У пакет додаються <code>&lt;meta name="ad.size"&gt;</code>, глобальний <code>clickTag</code> і backup-зображення — формат, який приймають Google Ads, DV360 та Campaign Manager.</li>
+    </ol>
+    <p class="hint">Обмеження: спрайтовий підхід лінійно нарощує вагу з кількістю кадрів. Для кліпів довше ~5&nbsp;с знижуйте fps або ріжіть анімацію — інакше 150&nbsp;КБ не втримати.</p>
+  </section>
+</main>
+
+<footer>
+  <p>Усе обчислюється у вашому браузері. Потрібен Chrome&nbsp;94+, Edge, Firefox&nbsp;100+ або Safari&nbsp;16.4+.</p>
+</footer>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

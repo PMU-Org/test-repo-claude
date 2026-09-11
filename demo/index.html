@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Приклад збірки — WebM → HTML5 Banner</title>
+<link rel="stylesheet" href="../assets/css/app.css">
+<style>
+  .demo-wrap { display: grid; gap: 22px; grid-template-columns: auto minmax(280px, 1fr); align-items: start; }
+  @media (max-width: 780px) { .demo-wrap { grid-template-columns: 1fr; } }
+  .demo-frame { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #0b0d10; }
+  .demo-frame iframe { border: 0; display: block; width: 300px; height: 600px; }
+  .files { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 6px; }
+  .files a { color: var(--ink); text-decoration: none; font-family: var(--mono); font-size: 12.5px; }
+  .files a:hover { color: var(--accent); }
+  .files span { color: var(--ink-faint); font-size: 12px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">▶</span>
+    <div>
+      <h1>Приклад збірки</h1>
+      <p class="tagline">Баннер нижче зібрано конвертером з <code>delia-red-300x600.webm</code> без жодного ручного правлення — автопідбором під бюджет 150&nbsp;КБ.</p>
+    </div>
+  </div>
+  <a class="ghlink" href="../index.html">← До конвертера</a>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Half Page 300×600</h2>
+    <div class="demo-wrap">
+      <div class="demo-frame">
+        <iframe src="delia-red-300x600/index.html" title="HTML5 banner 300x600" sandbox="allow-scripts"></iframe>
+      </div>
+      <div>
+        <dl class="meta" style="margin-top:0">
+          <div><dt>Джерело</dt><dd>1538 КБ · VP9 · 30 fps</dd></div>
+          <div><dt>Результат</dt><dd>146 КБ ZIP</dd></div>
+          <div><dt>Кадрів</dt><dd>16 @ 8 fps</dd></div>
+          <div><dt>Спрайт</dt><dd>1800×1800 · 6×3</dd></div>
+          <div><dt>Роздільність</dt><dd>100% — 1:1</dd></div>
+          <div><dt>Повторів</dt><dd>3, стоп на останньому кадрі</dd></div>
+        </dl>
+        <p class="hint">Автопідбір з пріоритетом «тримати різкість»: частота кадрів впала з 30 до 8, роздільність залишилась 1:1 — інакше юридичний дисклеймер унизу креативу став би нерозбірливим.</p>
+        <ul class="files">
+          <li><a href="delia-red-300x600/delia-red-300x600.zip">delia-red-300x600.zip</a> <span>— пакет для Google Ads (index.html + спрайт + README)</span></li>
+          <li><a href="delia-red-300x600/index.html">index.html</a> <span>— сам баннер</span></li>
+          <li><a href="delia-red-300x600/sprite.webp">sprite.webp</a> <span>— спрайт-аркуш, 16 кадрів</span></li>
+          <li><a href="delia-red-300x600/banner-inline.html">banner-inline.html</a> <span>— варіант одним файлом (спрайт у data URI)</span></li>
+          <li><a href="delia-red-300x600/backup.jpg">backup.jpg</a> <span>— статичний backup-кадр</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer><p>Збірку генерує <code>tools/build-demo.mjs</code> — той самий скрипт, що служить e2e-тестом конвертера.</p></footer>
+</body>
+</html>

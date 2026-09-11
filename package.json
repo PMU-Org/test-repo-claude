@@ -1,0 +1,15 @@
+{
+  "name": "webm-to-html5-banner",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Client-side WebM to HTML5 sprite banner converter",
+  "type": "module",
+  "scripts": {
+    "serve": "npx --yes http-server . -p 8080 -c-1",
+    "build:demo": "node tools/build-demo.mjs",
+    "test": "node tools/build-demo.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}

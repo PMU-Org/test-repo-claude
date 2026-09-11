@@ -325,6 +325,29 @@ if (payload.assetMode === 'frames') {
   await preview.close();
 }
 
+// The reported failure: index/index.html opened with nothing beside it,
+// which is what a ZIP viewer gives you when you open the file you clicked.
+{
+  const solitary = join(tmpdir(), `preview-alone-${Date.now()}`);
+  await mkdir(solitary, { recursive: true });
+  const previewSource = await readFile(join(OUT, 'index', 'index.html'));
+  await writeFile(join(solitary, 'index.html'), previewSource);
+  const lone = await browser.newPage({ viewport: { width: 460, height: 820 } });
+  await lone.goto(pathToFileURL(join(solitary, 'index.html')).href);
+  await lone.waitForSelector('#animation_container img, #frame');
+  await lone.waitForTimeout(600);
+  const state = await lone.evaluate(() => {
+    const img = document.querySelector('#animation_container img');
+    return img
+      ? { scheme: img.src.slice(0, 5), rendered: img.complete && img.naturalWidth > 0 }
+      : { scheme: 'css', rendered: true };
+  });
+  console.log('index/index.html with no siblings:', state);
+  if (!state.rendered) problems.push('preview page shows a broken image when opened on its own');
+  await lone.close();
+  await rm(solitary, { recursive: true, force: true });
+}
+
 // And the separate-sprite build must explain itself rather than go white.
 const orphanDir = join(tmpdir(), `banner-orphan-${Date.now()}`);
 await mkdir(orphanDir, { recursive: true });

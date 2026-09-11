@@ -31,7 +31,20 @@
   }
 
   function start() {
-    if (FRAMES > 1) { raf = requestAnimationFrame(tick); }
+    if (FRAMES < 2) { return; }
+    var pending = 0, broken = false;
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      if (img.complete) { if (!img.naturalWidth) { broken = true; } continue; }
+      pending++;
+      img.onload = settle;
+      img.onerror = function () { broken = true; settle(); };
+    }
+    function settle() {
+      if (--pending > 0) { return; }
+      if (!broken) { raf = requestAnimationFrame(tick); }
+    }
+    if (pending === 0 && !broken) { raf = requestAnimationFrame(tick); }
   }
 
   document.addEventListener('visibilitychange', function () {

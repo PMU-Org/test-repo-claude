@@ -64,7 +64,20 @@ function buildFramePlayer(cfg, { exposeStart }) {
   }
 
   function start() {
-    if (FRAMES > 1) { raf = requestAnimationFrame(tick); }
+    if (FRAMES < 2) { return; }
+    var pending = 0, broken = false;
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      if (img.complete) { if (!img.naturalWidth) { broken = true; } continue; }
+      pending++;
+      img.onload = settle;
+      img.onerror = function () { broken = true; settle(); };
+    }
+    function settle() {
+      if (--pending > 0) { return; }
+      if (!broken) { raf = requestAnimationFrame(tick); }
+    }
+    if (pending === 0 && !broken) { raf = requestAnimationFrame(tick); }
   }
 
   document.addEventListener('visibilitychange', function () {
@@ -223,11 +236,12 @@ function buildPreviewShim(clickUrl) {
 
 /** Every frame stacked; the first one is visible without any script running. */
 function buildFrameMarkup(cfg) {
-  const { frames, width, height, frameFiles, name } = cfg;
+  const { frames, width, height, frameFiles, name, firstFrameDataUrl } = cfg;
   const tags = [];
   for (let i = 0; i < frames; i++) {
     const hidden = i === 0 ? '' : 'display:none;';
-    tags.push(`<img src="${frameFiles[i]}" width="${width}" height="${height}" alt="${i === 0 ? escapeAttr(name) : ''}"`
+    const src = i === 0 && firstFrameDataUrl ? firstFrameDataUrl : frameFiles[i];
+    tags.push(`<img src="${src}" width="${width}" height="${height}" alt="${i === 0 ? escapeAttr(name) : ''}"`
       + ` style="position:absolute;left:0;top:0;width:${width}px;height:${height}px;${hidden}border:0;">`);
   }
   return tags.join('\n      ');
@@ -346,7 +360,7 @@ ${styles}
 }
 
 function standardPackage(cfg) {
-  const { width, height, name, clickUrl, entryFile, assetMode } = cfg;
+  const { width, height, name, clickUrl, entryFile, assetMode, noLink } = cfg;
   const frameMode = assetMode === 'frames';
   const styles = buildStyles(cfg, 'container');
   const player = frameMode
@@ -370,18 +384,20 @@ ${styles}
 </style>
 </head>
 <body>
-<a id="container" href="${escapeAttr(clickUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttr(name)}">${stage}</a>
+${noLink
+  ? `<div id="container" aria-label="${escapeAttr(name)}">${stage}</div>`
+  : `<a id="container" href="${escapeAttr(clickUrl)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttr(name)}">${stage}</a>`}
 <script>
-var clickTag = ${jsString(clickUrl)};
+${noLink ? '' : `var clickTag = ${jsString(clickUrl)};`}
 ${player}
-(function () {
+${noLink ? '' : `(function () {
   var ad = document.getElementById('container');
   ad.href = window.clickTag || '#';
   ad.addEventListener('click', function (e) {
     e.preventDefault();
     window.open(window.clickTag, '_blank');
   });
-})();
+})();`}
 </script>
 </body>
 </html>

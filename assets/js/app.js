@@ -382,7 +382,11 @@ async function convert(options) {
     const preview = buildCreative({
       ...shared,
       api: 'standard',
+      noLink: true,
       frameFiles: frameFiles.map((file) => `../${file}`),
+      // Carrying the first frame inside the page costs a few KB and buys a
+      // preview that renders even when it is the only file extracted.
+      firstFrameDataUrl: frameMode ? await blobToDataURL(frameBlobs[0]) : null,
       spriteUrl: `../${spriteFile}`,
       inlineSprite: false,
       inlineAll: true,

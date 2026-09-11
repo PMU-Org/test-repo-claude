@@ -38,7 +38,10 @@ function dosDateTime(date) {
 function directoryEntries(entries) {
   const dirs = new Set();
   for (const entry of entries) {
-    const parts = entry.name.split('/');
+    // An explicit entry may itself be an empty directory carried over from a
+    // template; keep it, and add every ancestor either way.
+    if (entry.isDir) dirs.add(entry.name.endsWith('/') ? entry.name : `${entry.name}/`);
+    const parts = entry.name.replace(/\/$/, '').split('/');
     for (let i = 1; i < parts.length; i++) dirs.add(`${parts.slice(0, i).join('/')}/`);
   }
   return [...dirs].sort().map((name) => ({ name, data: new Uint8Array(0), isDir: true }));
@@ -49,7 +52,8 @@ function directoryEntries(entries) {
  * @returns {Blob} application/zip
  */
 export function createZip(files) {
-  const entries = [...directoryEntries(files), ...files];
+  const contents = files.filter((entry) => !entry.isDir);
+  const entries = [...directoryEntries(files), ...contents];
   const encoder = new TextEncoder();
   const { time, day } = dosDateTime(new Date());
   const locals = [];

@@ -1,6 +1,8 @@
 import { loadVideo, probeFrameRate, captureFrames } from './extract.js';
 import { packSheet, encode, blobToDataURL, extensionFor, planGrid } from './sprite.js';
 import { createZip, blobBytes, textBytes } from './zip.js';
+import { readZip, isJunk } from './unzip.js';
+import { buildFallbackHarness, carryOver } from './harness.js';
 import { buildCreative, buildManifest } from './banner.js';
 
 const PRESETS = [
@@ -37,6 +39,7 @@ const PLATFORMS = {
     api: 'admixer',
     entryFile: 'body.html',
     assetDir: 'images',
+    harness: true,
     formats: ['image/jpeg', 'image/png'],
     budget: 300, maxFiles: null, maxAnimation: null,
     forcePackaging: 'assets', allowReadme: false,
@@ -96,6 +99,7 @@ const el = {
   format: $('opt-format'), quality: $('opt-quality'), qOut: $('q-out'), scale: $('opt-scale'),
   transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
   click: $('opt-click'), packaging: $('opt-packaging'), clickInCode: $('opt-click-in-code'),
+  template: $('opt-template'), templateNote: $('template-note'), wrapTemplate: $('wrap-template'),
   border: $('opt-border'), borderColor: $('opt-border-color'),
   backup: $('opt-backup'), bkOut: $('bk-out'),
   budget: $('opt-budget'), platform: $('opt-platform'), platformNote: $('platform-note'),
@@ -105,7 +109,7 @@ const el = {
   codeOut: $('code-out'), verdict: $('r-verdict'), checks: $('r-checks'),
 };
 
-const state = { file: null, url: null, video: null, meta: null, result: null, busy: false };
+const state = { file: null, url: null, video: null, meta: null, result: null, busy: false, template: null };
 
 /* ── helpers ──────────────────────────────────────────────────────── */
 
@@ -350,6 +354,20 @@ async function convert(options) {
       ...external.files.map((file) => ({ name: file.name, data: textBytes(file.text) })),
       { name: spriteFile, data: await blobBytes(spriteBlob) },
     ];
+
+  // The preview folder Admixer packages carry: taken from the user's own
+  // template when they supplied one, since its rig holds ids no documentation
+  // exposes; otherwise a fallback that occupies the same paths.
+  if (platform.harness && !inlineSprite) {
+    const harness = state.template
+      ? carryOver(state.template.entries, isJunk)
+      : buildFallbackHarness({ width: o.width, height: o.height, entryFile, name: base });
+    for (const file of harness) {
+      zipEntries.push(file.isDir
+        ? { name: file.name, data: new Uint8Array(0), isDir: true }
+        : { name: file.name, data: file.data || textBytes(file.text) });
+    }
+  }
 
   // A .txt is not in Admixer's allowed file types and would also eat into a
   // 300 KB budget, so the manifest only ships where it is welcome.
@@ -710,6 +728,7 @@ function applyPlatform({ resetBudget = true } = {}) {
   // argument; for clickTag platforms the URL is always written into the file.
   const clickInCodeRow = el.clickInCode.closest('label');
   clickInCodeRow.classList.toggle('hidden', platform.api !== 'admixer');
+  el.wrapTemplate.classList.toggle('hidden', !platform.harness);
 
   if (resetBudget && platform.budget) {
     const option = [...el.budget.options].find((o) => Number(o.value) === platform.budget);
@@ -719,6 +738,30 @@ function applyPlatform({ resetBudget = true } = {}) {
 }
 
 el.platform.addEventListener('change', () => applyPlatform());
+el.template.addEventListener('change', async () => {
+  const file = el.template.files[0];
+  if (!file) {
+    state.template = null;
+    el.templateNote.textContent = 'Не обрано — буде вкладено власний харнес для локального перегляду.';
+    el.templateNote.className = 'file-note';
+    return;
+  }
+  try {
+    const entries = await readZip(await file.arrayBuffer());
+    const carried = carryOver(entries, isJunk);
+    if (!carried.length) throw new Error('У шаблоні не знайдено нічого, крім самого креатива.');
+    state.template = { entries, name: file.name };
+    const bytes = carried.reduce((sum, entry) => sum + entry.data.length, 0);
+    el.templateNote.textContent = `${file.name}: переноситься ${carried.length} записів, ${kb(bytes)}.`;
+    el.templateNote.className = 'file-note ok';
+  } catch (error) {
+    state.template = null;
+    el.templateNote.textContent = error.message;
+    el.templateNote.className = 'file-note bad';
+  }
+  if (state.result) estimate();
+});
+
 el.clickInCode.addEventListener('change', () => { if (state.result) estimate(); });
 el.packaging.addEventListener('change', () => {
   el.convert.textContent = 'Конвертувати';

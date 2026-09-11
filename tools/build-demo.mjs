@@ -120,7 +120,7 @@ for (let i = 0; i < 6; i++) {
   offsets.push(await check.evaluate(() => getComputedStyle(document.getElementById('frame')).backgroundPosition));
   if (SHOTS) {
     await mkdir(SHOTS, { recursive: true });
-    await check.locator('#container').screenshot({ path: join(SHOTS, `frame-${i}.png`), omitBackground: true });
+    await check.locator('#frame').screenshot({ path: join(SHOTS, `frame-${i}.png`), omitBackground: true });
   }
   await check.waitForTimeout(120);
 }
@@ -165,7 +165,10 @@ if (payload.api === 'admixer') {
 }
 
 // A scaled sprite must still lay out at exactly the declared banner size.
-const box = await check.locator('#container').boundingBox();
+// Admixer's layout has the outer container follow the slot at 100%, so the
+// creative box is the inner element there.
+const BOX = payload.api === 'admixer' ? '#animation_container' : '#container';
+const box = await check.locator(BOX).boundingBox();
 console.log('rendered box:', box.width + 'x' + box.height);
 if (Math.abs(box.width - payload.width) > 2 || Math.abs(box.height - payload.height) > 2) {
   problems.push(`banner renders at ${box.width}x${box.height}, expected ${payload.width}x${payload.height}`);
@@ -175,13 +178,16 @@ if (payload.api === 'admixer') {
   if (payload.entryFile !== 'body.html') problems.push(`Admixer entry file must be body.html, got ${payload.entryFile}`);
   if (payload.inlineSprite) problems.push('Admixer requires the sprite as a separate file');
 
-  const expected = ['body.html', 'js/banner.js', 'js/body.js', 'images/sprite.jpg'];
+  const expected = [
+    'body.html', 'js/banner.js', 'js/body.js', 'images/sprite.jpg',
+    'index/index.html', 'index/settings.js', 'index/css/index.css',
+  ];
   console.log('zip entries:', payload.zipNames);
   for (const want of expected) {
     if (!payload.zipNames.includes(want)) problems.push(`Admixer ZIP is missing ${want}`);
   }
-  if (payload.zipNames.length !== expected.length) {
-    problems.push(`Admixer ZIP holds ${payload.zipNames.length} entries, expected ${expected.length}`);
+  if (!payload.zipNames.some((n) => n === 'index/banners/banner/body/')) {
+    problems.push('Admixer ZIP is missing the index/banners/banner/body/ preview folder');
   }
 
   // The glue file is the contract with the platform â€” check its shape, not
@@ -250,6 +256,40 @@ console.log(`orphaned ${ENTRY} shows:`, JSON.stringify(notice.slice(0, 60) + 'â€
 if (!notice) problems.push(`orphaned ${ENTRY} still renders silently blank`);
 await orphan.close();
 await rm(orphanDir, { recursive: true, force: true });
+
+// A supplied template must contribute its scaffolding and nothing else: its
+// own creative files are replaced, its archive junk dropped.
+if (payload.api === 'admixer') {
+  const tpl = await page.evaluate(async () => {
+    const r = window.__converter.state.result;
+    return { before: r.zipNames };
+  });
+  await page.setInputFiles('#opt-template', join(ROOT, 'tools/fixtures/admixer-template.zip'));
+  await page.waitForFunction(() => document.getElementById('template-note').className.includes('ok'), null, { timeout: 15000 });
+  await page.click('#btn-convert');
+  await page.waitForFunction(() => !window.__converter.state.busy, null, { timeout: 240000 });
+  const withTemplate = await page.evaluate(async () => {
+    const r = window.__converter.state.result;
+    const text = await r.zipBlob.slice(0).text();
+    return { names: r.zipNames, carriesMarker: text.includes('TEMPLATE HARNESS MARKER') };
+  });
+  console.log('with a supplied template:', withTemplate.names);
+  if (!withTemplate.carriesMarker) problems.push("the supplied template's index/ harness was not carried over");
+  if (withTemplate.names.some((n) => n.includes('__MACOSX') || n.includes('.DS_Store'))) {
+    problems.push('archive junk from the template reached the package');
+  }
+  if (!withTemplate.names.includes('images/sprite.jpg') || withTemplate.names.includes('images/old.jpg')) {
+    problems.push("the template's own creative assets were not replaced");
+  }
+  if (tpl.before.length === withTemplate.names.length && !withTemplate.carriesMarker) {
+    problems.push('supplying a template changed nothing');
+  }
+  // Leave the build that ships in demo/ free of the fixture.
+  await page.evaluate(() => { document.getElementById('opt-template').value = ''; });
+  await page.dispatchEvent('#opt-template', 'change');
+  await page.click('#btn-convert');
+  await page.waitForFunction(() => !window.__converter.state.busy, null, { timeout: 240000 });
+}
 
 // Admixer's API cannot be exercised for real from here, so stand in a mock
 // that records the contract: playback must wait for its load event and the

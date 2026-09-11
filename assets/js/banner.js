@@ -172,8 +172,8 @@ function buildPreviewShim(clickUrl) {
 /* ── styles ───────────────────────────────────────────────────────────── */
 
 function buildStyles(cfg, rootId) {
-  const { width, height, background, border, borderColor, spriteUrl, bgW, bgH } = cfg;
-  const rootRules = [
+  const { width, height, background, border, borderColor, spriteUrl, bgW, bgH, api } = cfg;
+  const boxRules = [
     'position:absolute', 'left:0', 'top:0',
     `width:${width}px`, `height:${height}px`,
     'overflow:hidden', 'box-sizing:border-box', 'cursor:pointer', 'text-decoration:none',
@@ -181,8 +181,15 @@ function buildStyles(cfg, rootId) {
     border ? `border:1px solid ${borderColor}` : 'border:0',
   ].join('; ');
 
+  // Admixer sizes the slot itself through init(), so the outer container
+  // follows the slot at 100% and the creative box keeps the declared pixels.
+  const shell = api === 'admixer'
+    ? `#container { position:absolute; left:0; top:0; width:100%; height:100%; }
+#animation_container { ${boxRules}; }`
+    : `#${rootId} { ${boxRules}; }`;
+
   return `html, body { margin: 0 0 0 0; }
-#${rootId} { ${rootRules}; }
+${shell}
 #frame {
   position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px;
   background-image: url(${spriteUrl});
@@ -248,7 +255,9 @@ ${buildAssetCheck(cfg.entryFile)}
   <style type="text/css">
 ${styles}
   </style>
-  <div id="container"><div id="frame"></div></div>
+  <div id="container">
+    <div id="animation_container"><div id="frame"></div></div>
+  </div>
   ${scripts}
 </body>
 </html>

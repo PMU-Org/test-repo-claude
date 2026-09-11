@@ -128,6 +128,16 @@ input[type="range"] { accent-color: var(--accent); width: 100%; }
 input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
 output { font-family: var(--mono); color: var(--ink); font-size: 12px; }
 
+.file-note { color: var(--ink-faint); font-size: 11.5px; }
+.file-note.ok { color: var(--ok); }
+.file-note.bad { color: var(--bad); }
+input[type="file"] { font-size: 11.5px; color: var(--ink-dim); }
+input[type="file"]::file-selector-button {
+  font: inherit; font-size: 11.5px; margin-right: 8px; padding: 4px 9px;
+  background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; cursor: pointer;
+}
+
 .budget {
   margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line);
   display: flex; align-items: end; gap: 12px; flex-wrap: wrap;
@@ -340,6 +350,10 @@ footer p { margin: 0; }
           <input type="url" id="opt-click" placeholder="https://example.com/landing" value="https://example.com/">
         </label>
         <label class="check"><input type="checkbox" id="opt-click-in-code"> URL у коді креатива</label>
+        <label id="wrap-template">Шаблон Admixer (.zip) — з нього береться тека <code>index/</code>
+          <input type="file" id="opt-template" accept=".zip,application/zip">
+          <span class="file-note" id="template-note">Не обрано — буде вкладено власний харнес для локального перегляду.</span>
+        </label>
         <label class="check"><input type="checkbox" id="opt-border" checked> Рамка 1&nbsp;px</label>
         <label id="wrap-border">Колір рамки <input type="color" id="opt-border-color" value="#d9d9d9"></label>
         <label>Кадр для backup-зображення <output id="bk-out">1</output>
@@ -693,7 +707,10 @@ function dosDateTime(date) {
 function directoryEntries(entries) {
   const dirs = new Set();
   for (const entry of entries) {
-    const parts = entry.name.split('/');
+    // An explicit entry may itself be an empty directory carried over from a
+    // template; keep it, and add every ancestor either way.
+    if (entry.isDir) dirs.add(entry.name.endsWith('/') ? entry.name : `${entry.name}/`);
+    const parts = entry.name.replace(/\/$/, '').split('/');
     for (let i = 1; i < parts.length; i++) dirs.add(`${parts.slice(0, i).join('/')}/`);
   }
   return [...dirs].sort().map((name) => ({ name, data: new Uint8Array(0), isDir: true }));
@@ -704,7 +721,8 @@ function directoryEntries(entries) {
  * @returns {Blob} application/zip
  */
 function createZip(files) {
-  const entries = [...directoryEntries(files), ...files];
+  const contents = files.filter((entry) => !entry.isDir);
+  const entries = [...directoryEntries(files), ...contents];
   const encoder = new TextEncoder();
   const { time, day } = dosDateTime(new Date());
   const locals = [];
@@ -946,8 +964,8 @@ function buildPreviewShim(clickUrl) {
 /* ── styles ───────────────────────────────────────────────────────────── */
 
 function buildStyles(cfg, rootId) {
-  const { width, height, background, border, borderColor, spriteUrl, bgW, bgH } = cfg;
-  const rootRules = [
+  const { width, height, background, border, borderColor, spriteUrl, bgW, bgH, api } = cfg;
+  const boxRules = [
     'position:absolute', 'left:0', 'top:0',
     `width:${width}px`, `height:${height}px`,
     'overflow:hidden', 'box-sizing:border-box', 'cursor:pointer', 'text-decoration:none',
@@ -955,8 +973,15 @@ function buildStyles(cfg, rootId) {
     border ? `border:1px solid ${borderColor}` : 'border:0',
   ].join('; ');
 
+  // Admixer sizes the slot itself through init(), so the outer container
+  // follows the slot at 100% and the creative box keeps the declared pixels.
+  const shell = api === 'admixer'
+    ? `#container { position:absolute; left:0; top:0; width:100%; height:100%; }
+#animation_container { ${boxRules}; }`
+    : `#${rootId} { ${boxRules}; }`;
+
   return `html, body { margin: 0 0 0 0; }
-#${rootId} { ${rootRules}; }
+${shell}
 #frame {
   position: absolute; left: 0; top: 0; width: ${width}px; height: ${height}px;
   background-image: url(${spriteUrl});
@@ -1022,7 +1047,9 @@ ${buildAssetCheck(cfg.entryFile)}
   <style type="text/css">
 ${styles}
   </style>
-  <div id="container"><div id="frame"></div></div>
+  <div id="container">
+    <div id="animation_container"><div id="frame"></div></div>
+  </div>
   ${scripts}
 </body>
 </html>
@@ -1171,6 +1198,7 @@ const PLATFORMS = {
     api: 'admixer',
     entryFile: 'body.html',
     assetDir: 'images',
+    harness: true,
     formats: ['image/jpeg', 'image/png'],
     budget: 300, maxFiles: null, maxAnimation: null,
     forcePackaging: 'assets', allowReadme: false,
@@ -1230,6 +1258,7 @@ const el = {
   format: $('opt-format'), quality: $('opt-quality'), qOut: $('q-out'), scale: $('opt-scale'),
   transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
   click: $('opt-click'), packaging: $('opt-packaging'), clickInCode: $('opt-click-in-code'),
+  template: $('opt-template'), templateNote: $('template-note'), wrapTemplate: $('wrap-template'),
   border: $('opt-border'), borderColor: $('opt-border-color'),
   backup: $('opt-backup'), bkOut: $('bk-out'),
   budget: $('opt-budget'), platform: $('opt-platform'), platformNote: $('platform-note'),
@@ -1239,7 +1268,7 @@ const el = {
   codeOut: $('code-out'), verdict: $('r-verdict'), checks: $('r-checks'),
 };
 
-const state = { file: null, url: null, video: null, meta: null, result: null, busy: false };
+const state = { file: null, url: null, video: null, meta: null, result: null, busy: false, template: null };
 
 /* ── helpers ──────────────────────────────────────────────────────── */
 
@@ -1484,6 +1513,20 @@ async function convert(options) {
       ...external.files.map((file) => ({ name: file.name, data: textBytes(file.text) })),
       { name: spriteFile, data: await blobBytes(spriteBlob) },
     ];
+
+  // The preview folder Admixer packages carry: taken from the user's own
+  // template when they supplied one, since its rig holds ids no documentation
+  // exposes; otherwise a fallback that occupies the same paths.
+  if (platform.harness && !inlineSprite) {
+    const harness = state.template
+      ? carryOver(state.template.entries, isJunk)
+      : buildFallbackHarness({ width: o.width, height: o.height, entryFile, name: base });
+    for (const file of harness) {
+      zipEntries.push(file.isDir
+        ? { name: file.name, data: new Uint8Array(0), isDir: true }
+        : { name: file.name, data: file.data || textBytes(file.text) });
+    }
+  }
 
   // A .txt is not in Admixer's allowed file types and would also eat into a
   // 300 KB budget, so the manifest only ships where it is welcome.
@@ -1825,6 +1868,7 @@ function applyPlatform({ resetBudget = true } = {}) {
   // argument; for clickTag platforms the URL is always written into the file.
   const clickInCodeRow = el.clickInCode.closest('label');
   clickInCodeRow.classList.toggle('hidden', platform.api !== 'admixer');
+  el.wrapTemplate.classList.toggle('hidden', !platform.harness);
 
   if (resetBudget && platform.budget) {
     const option = [...el.budget.options].find((o) => Number(o.value) === platform.budget);
@@ -1834,6 +1878,30 @@ function applyPlatform({ resetBudget = true } = {}) {
 }
 
 el.platform.addEventListener('change', () => applyPlatform());
+el.template.addEventListener('change', async () => {
+  const file = el.template.files[0];
+  if (!file) {
+    state.template = null;
+    el.templateNote.textContent = 'Не обрано — буде вкладено власний харнес для локального перегляду.';
+    el.templateNote.className = 'file-note';
+    return;
+  }
+  try {
+    const entries = await readZip(await file.arrayBuffer());
+    const carried = carryOver(entries, isJunk);
+    if (!carried.length) throw new Error('У шаблоні не знайдено нічого, крім самого креатива.');
+    state.template = { entries, name: file.name };
+    const bytes = carried.reduce((sum, entry) => sum + entry.data.length, 0);
+    el.templateNote.textContent = `${file.name}: переноситься ${carried.length} записів, ${kb(bytes)}.`;
+    el.templateNote.className = 'file-note ok';
+  } catch (error) {
+    state.template = null;
+    el.templateNote.textContent = error.message;
+    el.templateNote.className = 'file-note bad';
+  }
+  if (state.result) estimate();
+});
+
 el.clickInCode.addEventListener('change', () => { if (state.result) estimate(); });
 el.packaging.addEventListener('change', () => {
   el.convert.textContent = 'Конвертувати';

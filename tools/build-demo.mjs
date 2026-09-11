@@ -11,6 +11,7 @@ import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { dirname, extname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { readZip } from '../assets/js/unzip.js';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const PORT = Number(process.argv[process.argv.indexOf('--port') + 1]) || 8123;
@@ -94,17 +95,20 @@ await mkdir(OUT, { recursive: true });
 // plus the separate sprite it references.
 const ENTRY = payload.entryFile;
 
-/** Writes the package the same way the ZIP lays it out, subfolders included. */
+/**
+ * Unpacks the produced archive, so the folder on disk is the package byte for
+ * byte rather than a second assembly of it that could drift.
+ */
 async function writePackage(dir) {
+  const zip = Buffer.from(payload.zip, 'base64');
+  const entries = await readZip(zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength));
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, ENTRY), payload.inlineSprite ? payload.htmlInline : payload.htmlExternal);
-  if (payload.inlineSprite) return;
-  for (const file of payload.extraFiles) {
-    await mkdir(dirname(join(dir, file.name)), { recursive: true });
-    await writeFile(join(dir, file.name), file.text);
+  for (const entry of entries) {
+    const target = join(dir, entry.name);
+    if (entry.isDir) { await mkdir(target, { recursive: true }); continue; }
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, entry.data);
   }
-  await mkdir(dirname(join(dir, payload.spriteFile)), { recursive: true });
-  await writeFile(join(dir, payload.spriteFile), Buffer.from(payload.sprite, 'base64'));
 }
 
 await writePackage(OUT);

@@ -1,0 +1,40 @@
+@charset "utf-8";
+
+html, body {
+    height: 100%;
+    margin: 0 0 0 0;
+    font: 12px/1.33 Arial, Helvetica, sans-serif;
+    background: #ededed;
+}
+
+.page {
+    max-width: 1178px;
+    margin: 0 auto;
+    padding: 24px 16px;
+}
+
+.ttl {
+    font-size: 13px;
+    color: #555;
+    margin: 0 0 8px;
+}
+
+.wrapper-table {
+    background: #fff;
+    border: 1px solid #d9d9d9;
+    display: inline-block;
+    line-height: 0;
+}
+
+.note {
+    max-width: 62ch;
+    color: #666;
+    margin-top: 16px;
+    line-height: 1.5;
+}
+
+.note code {
+    background: #fff;
+    border: 1px solid #ddd;
+    padding: 1px 4px;
+}

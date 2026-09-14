@@ -75,6 +75,7 @@ const payload = await page.evaluate(async () => {
     sizes: r.sizes, width: r.width, height: r.height, scale: r.scale,
     entryFile: r.entryFile, inlineSprite: r.inlineSprite, zipFiles: r.zipFiles, api: r.api,
     zipNames: r.zipNames, extraFiles: r.extraFiles, assetMode: r.assetMode, frameFiles: r.frameFiles,
+    creativeBytes: r.creativeBytes,
     verdict: document.getElementById('r-verdict').textContent,
     checks: [...document.querySelectorAll('#r-checks li')].map((li) => `${li.className || 'ok'} — ${li.textContent}`),
   };
@@ -127,6 +128,13 @@ const FRAME_PROBE = `(() => {
   return String(imgs.findIndex((i) => getComputedStyle(i).display !== 'none'));
 })()`;
 const STAGE = payload.assetMode === 'frames' ? '#animation_container img' : '#frame';
+/** Same question, for a page whose storage mode may differ from the creative's. */
+const FRAME_PROBE_ANY = `(() => {
+  const el = document.getElementById('frame');
+  if (el) { return getComputedStyle(el).backgroundPosition; }
+  const imgs = [...document.querySelectorAll('#animation_container img')];
+  return String(imgs.findIndex((i) => getComputedStyle(i).display !== 'none'));
+})()`;
 
 // Verify the written banner actually animates: sample the shown frame over time.
 const check = await browser.newPage({ viewport: { width: 420, height: 700 } });
@@ -194,7 +202,9 @@ if (Math.abs(box.width - payload.width) > 2 || Math.abs(box.height - payload.hei
   problems.push(`banner renders at ${box.width}x${box.height}, expected ${payload.width}x${payload.height}`);
 }
 if (payload.api === 'admixer') {
-  if (payload.sizes.zip / 1024 > 300) problems.push(`ZIP is ${(payload.sizes.zip / 1024).toFixed(1)} KB, over Admixer's 300 KB`);
+  if (payload.creativeBytes / 1024 > 300) {
+    problems.push(`creative is ${(payload.creativeBytes / 1024).toFixed(1)} KB, over Admixer's 300 KB`);
+  }
   if (payload.entryFile !== 'body.html') problems.push(`Admixer entry file must be body.html, got ${payload.entryFile}`);
   if (payload.inlineSprite) problems.push('Admixer requires the sprite as a separate file');
 
@@ -299,10 +309,10 @@ if (payload.assetMode === 'frames') {
   preview.on('pageerror', (e) => previewProblems.push('pageerror: ' + e.message));
   preview.on('requestfailed', (r) => previewProblems.push('requestfailed: ' + r.url().split('/').pop()));
   await preview.goto(pathToFileURL(join(OUT, 'index', 'index.html')).href);
-  await preview.waitForSelector(STAGE);
+  await preview.waitForSelector('#animation_container img, #frame');
   await preview.waitForTimeout(500);
   const shown = await preview.evaluate(() => {
-    const img = document.querySelector('#animation_container img, #frame');
+    const img = document.querySelector('#animation_container img') || document.getElementById('frame');
     const box = document.getElementById('animation_container') || document.getElementById('container');
     const rect = box.getBoundingClientRect();
     return {
@@ -313,7 +323,7 @@ if (payload.assetMode === 'frames') {
     };
   });
   const moved = new Set();
-  for (let i = 0; i < 4; i++) { moved.add(await preview.evaluate(FRAME_PROBE)); await preview.waitForTimeout(160); }
+  for (let i = 0; i < 5; i++) { moved.add(await preview.evaluate(FRAME_PROBE_ANY)); await preview.waitForTimeout(170); }
   console.log('index/index.html over file://:', { ...shown, animates: moved.size > 2 });
   if (previewProblems.length) problems.push(`preview page: ${previewProblems.join('; ')}`);
   if (!shown.loaded) problems.push('preview page does not render the creative');
@@ -321,6 +331,9 @@ if (payload.assetMode === 'frames') {
     problems.push(`preview page renders at ${shown.width}x${shown.height}`);
   }
   if (shown.externalCss || shown.iframes) problems.push('preview page still depends on a stylesheet or an iframe');
+  const external = await preview.evaluate(() => [...document.querySelectorAll('img')]
+    .map((i) => i.getAttribute('src')).filter((src) => !src.startsWith('data:')).length);
+  if (external) problems.push(`preview page still loads ${external} image(s) from outside itself`);
   if (moved.size < 3) problems.push('preview page does not animate');
   await preview.close();
 }
@@ -338,14 +351,37 @@ if (payload.assetMode === 'frames') {
   await lone.waitForTimeout(600);
   const state = await lone.evaluate(() => {
     const img = document.querySelector('#animation_container img');
-    return img
-      ? { scheme: img.src.slice(0, 5), rendered: img.complete && img.naturalWidth > 0 }
-      : { scheme: 'css', rendered: true };
+    if (img) return { scheme: img.src.slice(0, 5), rendered: img.complete && img.naturalWidth > 0 };
+    const css = getComputedStyle(document.getElementById('frame')).backgroundImage;
+    return { scheme: css.slice(5, 10), rendered: css.includes('data:') };
   });
-  console.log('index/index.html with no siblings:', state);
+  const alone = new Set();
+  for (let i = 0; i < 6; i++) { alone.add(await lone.evaluate(FRAME_PROBE_ANY)); await lone.waitForTimeout(170); }
+  console.log('index/index.html with no siblings:', { ...state, animates: alone.size > 2 });
   if (!state.rendered) problems.push('preview page shows a broken image when opened on its own');
+  if (alone.size < 3) problems.push('preview page does not animate when opened on its own');
   await lone.close();
   await rm(solitary, { recursive: true, force: true });
+}
+
+// A creative that loses one asset must keep animating over the rest rather
+// than freezing on frame one — the failure this player used to have.
+if (payload.assetMode === 'frames') {
+  const gapped = join(tmpdir(), `banner-gap-${Date.now()}`);
+  await writePackage(gapped);
+  await rm(join(gapped, payload.frameFiles[3]), { force: true });
+  await rm(join(gapped, payload.frameFiles[7]), { force: true });
+  const gap = await browser.newPage({ viewport: { width: 400, height: 700 } });
+  await gap.goto(pathToFileURL(join(gapped, ENTRY)).href);
+  await gap.waitForSelector(STAGE);
+  await gap.waitForTimeout(500);
+  const seen = new Set();
+  for (let i = 0; i < 8; i++) { seen.add(await gap.evaluate(FRAME_PROBE)); await gap.waitForTimeout(150); }
+  console.log('with two frames deleted:', { distinctFrames: seen.size, skipped: !seen.has('3') && !seen.has('7') });
+  if (seen.size < 3) problems.push('banner freezes when a frame is missing instead of skipping it');
+  if (seen.has('3') || seen.has('7')) problems.push('banner shows a frame that failed to load');
+  await gap.close();
+  await rm(gapped, { recursive: true, force: true });
 }
 
 // And the separate-sprite build must explain itself rather than go white.

@@ -101,6 +101,7 @@ const el = {
   assetMode: $('opt-asset-mode'),
   transparent: $('opt-transparent'), bg: $('opt-bg'), wrapBg: $('wrap-bg'),
   click: $('opt-click'), packaging: $('opt-packaging'), clickInCode: $('opt-click-in-code'),
+  previewFolder: $('opt-preview-folder'),
   template: $('opt-template'), templateNote: $('template-note'), wrapTemplate: $('wrap-template'),
   border: $('opt-border'), borderColor: $('opt-border-color'),
   backup: $('opt-backup'), bkOut: $('bk-out'),
@@ -376,24 +377,13 @@ async function convert(options) {
   // The preview folder Admixer packages carry: taken from the user's own
   // template when they supplied one, since its rig holds ids no documentation
   // exposes; otherwise a fallback that occupies the same paths.
-  if (platform.harness && !inlineSprite) {
-    // The preview page renders the creative itself, so it needs the same
-    // assets addressed one level up and no platform API to wait for.
-    const preview = buildCreative({
-      ...shared,
-      api: 'standard',
-      noLink: true,
-      frameFiles: frameFiles.map((file) => `../${file}`),
-      // Carrying the first frame inside the page costs a few KB and buys a
-      // preview that renders even when it is the only file extracted.
-      firstFrameDataUrl: frameMode ? await blobToDataURL(frameBlobs[0]) : null,
-      spriteUrl: `../${spriteFile}`,
-      inlineSprite: false,
-      inlineAll: true,
-    });
+  if (platform.harness && !inlineSprite && el.previewFolder.checked) {
+    // The preview page is the self-contained build: every frame travels inside
+    // it, so it animates wherever it is opened — including straight out of a
+    // ZIP viewer, which extracts only the file you clicked.
     const harness = state.template
       ? carryOver(state.template.entries, isJunk)
-      : buildFallbackHarness({ entryFile, creativeHtml: preview.html, height: o.height });
+      : buildFallbackHarness({ entryFile, creativeHtml: inline.html, height: o.height });
     for (const file of harness) {
       zipEntries.push(file.isDir
         ? { name: file.name, data: new Uint8Array(0), isDir: true }
@@ -412,6 +402,9 @@ async function convert(options) {
   return {
     ...shared, options: o, inlineSprite, zipFiles: zipEntries.length,
     zipNames: zipEntries.map((entry) => entry.name),
+    creativeBytes: zipEntries
+      .filter((entry) => !entry.name.startsWith('index/'))
+      .reduce((sum, entry) => sum + entry.data.length, 0),
     spriteBlob, backupBlob, zipBlob,
     htmlExternal: external.html, htmlInline: inline.html, extraFiles: external.files, base,
     sizes: {
@@ -435,6 +428,7 @@ function showResult(result) {
       + (result.scale === 1 ? '' : ` · ${Math.round(result.scale * 100)}%`);
   $('r-sprite').textContent = kb(result.sizes.sprite);
   $('r-entry').textContent = `${result.entryFile} · ${kb(result.sizes.entry)}`;
+  $('r-creative').textContent = kb(result.creativeBytes);
   $('r-zip').textContent = kb(result.sizes.zip);
   $('r-mem').textContent = `${(result.sizes.memory / 1048576).toFixed(1)} МБ`;
 
@@ -448,9 +442,9 @@ function showResult(result) {
 
   const platformLabel = (PLATFORMS[result.options.platform] || PLATFORMS.any).label;
   const limit = budgetOf(PLATFORMS[result.options.platform] || PLATFORMS.any, result);
-  const over = limit && result.sizes.zip / 1024 > limit;
+  const over = limit && result.creativeBytes / 1024 > limit;
   $('dl-zip').textContent = over
-    ? `⚠ ZIP ${kb(result.sizes.zip)} — понад ліміт ${limit} КБ`
+    ? `⚠ Креатив ${kb(result.creativeBytes)} — понад ліміт ${limit} КБ`
     : result.options.platform === 'any' ? '⤓ ZIP-пакет' : `⤓ ZIP для ${platformLabel}`;
   $('dl-zip').classList.toggle('danger', Boolean(over));
   // The embedded-sprite build is not a deliverable where the platform demands
@@ -498,10 +492,15 @@ function renderChecks(result, zipKb, memoryHeavy) {
     items.push(['ok', `${ext} у переліку дозволених типів ${platform.label}.`]);
   }
 
-  if (budgetOf(platform, result)) {
-    const limit = budgetOf(platform, result);
-    items.push([zipKb <= limit ? 'ok' : 'bad',
-      `ZIP ${zipKb.toFixed(0)} КБ ${zipKb <= limit ? 'вкладається в' : 'перевищує'} ліміт ${limit} КБ.`]);
+  const limit = budgetOf(platform, result);
+  if (limit) {
+    const creativeKb = result.creativeBytes / 1024;
+    items.push([creativeKb <= limit ? 'ok' : 'bad',
+      `Креатив ${creativeKb.toFixed(0)} КБ ${creativeKb <= limit ? 'вкладається в' : 'перевищує'} ліміт ${limit} КБ.`]);
+    if (result.zipNames.some((name) => name.startsWith('index/'))) {
+      items.push(['warn', `Архів разом із текою перегляду — ${zipKb.toFixed(0)} КБ. `
+        + 'Сторінка перегляду не віддається на показ; якщо валідатор міряє весь архів, зніміть галочку «Тека index/».']);
+    }
   }
 
   if (platform.maxFiles) {
@@ -633,7 +632,7 @@ async function autofit() {
     const frames = Math.max(1, Math.round(span * candidate.fps));
 
     if (reference) {
-      const predicted = reference.zip
+      const predicted = reference.creative
         * (frames / reference.frames)
         * ((candidate.scale * candidate.scale) / (reference.scale * reference.scale))
         * (qualityFactor(candidate.quality) / qualityFactor(reference.quality));
@@ -645,14 +644,14 @@ async function autofit() {
     tried++;
     setProgress(0.5, `${Math.round(candidate.scale * 100)}% · ${candidate.fps} fps · q${candidate.quality}`);
     const result = await convert({ ...base, ...candidate });
-    reference = { zip: result.sizes.zip, frames: result.frames, scale: candidate.scale, quality: candidate.quality };
-    if (!smallest || result.sizes.zip < smallest.sizes.zip) smallest = result;
+    reference = { creative: result.creativeBytes, frames: result.frames, scale: candidate.scale, quality: candidate.quality };
+    if (!smallest || result.creativeBytes < smallest.creativeBytes) smallest = result;
 
-    if (result.sizes.zip / 1024 <= budget) {
+    if (result.creativeBytes / 1024 <= budget) {
       applyCandidate(candidate);
       showResult(result);
       const summary = `Підібрано за ${tried} ${plural(tried, 'спробу', 'спроби', 'спроб')}: `
-        + `${Math.round(candidate.scale * 100)}% роздільності, ${candidate.fps} fps, якість ${candidate.quality} — ZIP ${kb(result.sizes.zip)}.`;
+        + `${Math.round(candidate.scale * 100)}% роздільності, ${candidate.fps} fps, якість ${candidate.quality} — креатив ${kb(result.creativeBytes)}.`;
       el.verdict.textContent = `${summary} ${el.verdict.textContent}`.trim();
       setProgress(null);
       return;
@@ -662,7 +661,7 @@ async function autofit() {
   setProgress(null);
   if (smallest) {
     showResult(smallest);
-    el.verdict.textContent = `Не вдалося вкластися в ${budget} КБ навіть на мінімальних налаштуваннях (${kb(smallest.sizes.zip)}). `
+    el.verdict.textContent = `Не вдалося вкластися в ${budget} КБ навіть на мінімальних налаштуваннях (${kb(smallest.creativeBytes)}). `
       + 'Обріжте анімацію, зменште розмір баннера або залиште більший бюджет.';
     el.verdict.className = 'hint bad';
     setProgress(null);
